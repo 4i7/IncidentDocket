@@ -63,6 +63,8 @@ const osItem = {
   LastBootUpTime: "2026-07-16T00:00:00.000Z",
 };
 
+const windows11Product = () => "Windows 11 Pro";
+
 const driverItem = {
   DeviceName: "Example Display Adapter 日本語",
   Manufacturer: "Example Manufacturer",
@@ -309,6 +311,7 @@ describe("canonical collection plan boundary", () => {
           collectLiveCase(forged, {
             platform: "win32",
             osRelease: "10.0.26100",
+            osVersion: windows11Product,
             execute: async () => {
               collectorCalls += 1;
               return { stdout: "", stderr: "" };
@@ -742,6 +745,7 @@ describe("Windows event evidence boundary", () => {
       const built = await collectLiveCase(eventPlan(["system_events", "application_events"]), {
         platform: "win32",
         osRelease: "10.0.26100",
+        osVersion: windows11Product,
         execute: scenario.execute,
         collectedAt: new Date("2026-07-16T00:35:00.000Z"),
       });
@@ -756,6 +760,7 @@ describe("Windows event evidence boundary", () => {
     const built = await collectLiveCase(eventPlan(["system_events", "application_events"]), {
       platform: "win32",
       osRelease: "10.0.26100",
+      osVersion: windows11Product,
       execute: async (_command, args) => {
         seen.push(args);
         return args.includes("system_events")
@@ -778,6 +783,7 @@ describe("Windows event evidence boundary", () => {
     const truncated = await collectLiveCase(eventPlan(), {
       platform: "win32",
       osRelease: "10.0.26100",
+      osVersion: windows11Product,
       execute: async () => ({
         stdout: eventPayload([eventItem()], { truncated_before: true }),
         stderr: "",
@@ -872,6 +878,7 @@ describe("Windows collector boundary", () => {
     const built = await collectLiveCase(driverPlan(), {
       platform: "win32",
       osRelease: "10.0.26100",
+      osVersion: windows11Product,
       execute: async (_command, args) => {
         expect(args.slice(-2)).toEqual(["-Action", "display_drivers"]);
         return { stdout: encodedCollectorPayload({ status: "ok", items: [second, first] }), stderr: "private diagnostic" };
@@ -920,6 +927,7 @@ describe("Windows collector boundary", () => {
       const built = await collectLiveCase(driverPlan(), {
         platform: "win32",
         osRelease: "10.0.26100",
+        osVersion: windows11Product,
         execute,
         collectedAt: new Date("2026-07-16T01:00:00.000Z"),
       });
@@ -961,6 +969,7 @@ describe("Windows collector boundary", () => {
       const built = await collectLiveCase(osPlan(), {
         platform: "win32",
         osRelease: "10.0.26100",
+        osVersion: windows11Product,
         execute,
         collectedAt: new Date("2026-07-16T01:00:00.000Z"),
       });
@@ -973,6 +982,7 @@ describe("Windows collector boundary", () => {
     const built = await collectLiveCase(osPlan(), {
       platform: "win32",
       osRelease: "10.0.26100",
+      osVersion: windows11Product,
       execute: async () => ({
         stdout: encodedCollectorPayload({ status: "ok", items: [osItem] }),
         stderr: secretDiagnostic,
@@ -1009,6 +1019,86 @@ describe("Windows collector boundary", () => {
     ).rejects.toMatchObject({ code: "unsupported_platform" });
   });
 
+  it("accepts Windows 11 products and rejects unsupported products before collection", async () => {
+    const accepted = [
+      ["Windows 11", "10.0.22000"],
+      ["Windows 11 Pro", "10.0.26100"],
+      ["Windows 11 Enterprise", "10.0.26100"],
+      ["Windows 11 Home", "10.0.26100"],
+    ] as const;
+    for (const [product, osRelease] of accepted) {
+      let collectorCalls = 0;
+      const built = await collectLiveCase(osPlan(), {
+        platform: "win32",
+        osRelease,
+        osVersion: () => product,
+        execute: async () => {
+          collectorCalls += 1;
+          return { stdout: encodedCollectorPayload({ status: "ok", items: [osItem] }), stderr: "" };
+        },
+        collectedAt: new Date("2026-07-16T01:00:00.000Z"),
+      });
+      expect(collectorCalls, product).toBe(1);
+      expect(built.case.coverage[0]?.status, product).toBe("ok");
+    }
+
+    const rejected: Array<[string, () => string]> = [
+      ["Windows Server 2025 Standard", () => "Windows Server 2025 Standard"],
+      ["Windows Server 2025 Datacenter", () => "Windows Server 2025 Datacenter"],
+      ["Windows Server 2022 Standard", () => "Windows Server 2022 Standard"],
+      ["Microsoft Windows Server 2025", () => "Microsoft Windows Server 2025"],
+      ["Windows 10 Pro", () => "Windows 10 Pro"],
+      ["Windows 12 Pro", () => "Windows 12 Pro"],
+      ["empty product", () => ""],
+      ["whitespace product", () => "   "],
+      ["malformed product", () => "Windows 11Pro"],
+      ["non-string product", () => undefined as unknown as string],
+      ["embedded Windows 11", () => "Not Windows 11"],
+      ["Windows 11 Server", () => "Windows 11 Server"],
+      ["provider exception", () => { throw new Error("private product detail"); }],
+    ];
+    const root = await temporaryDirectory();
+    const cwd = join(root, "cwd");
+    const localAppData = join(root, "local");
+    await mkdir(cwd);
+    const originalCwd = process.cwd();
+    const originalLocalAppData = process.env.LOCALAPPDATA;
+    process.chdir(cwd);
+    process.env.LOCALAPPDATA = localAppData;
+    try {
+      for (const [label, osVersion] of rejected) {
+        let collectorCalls = 0;
+        let error: unknown;
+        try {
+          await collectLiveCase(osPlan(), {
+            platform: "win32",
+            osRelease: "10.0.26100",
+            osVersion,
+            execute: async () => {
+              collectorCalls += 1;
+              return { stdout: "", stderr: "" };
+            },
+          });
+        } catch (value) {
+          error = value;
+        }
+        expect(error, label).toMatchObject({
+          code: "unsupported_platform",
+          message: "Live collection requires Windows 11",
+        });
+        expect(String(error), label).not.toContain("private product detail");
+        expect(collectorCalls, label).toBe(0);
+        expect(process.cwd(), label).toBe(cwd);
+      }
+      expect(await readdir(cwd)).toEqual([]);
+      await expect(readdir(localAppData)).rejects.toMatchObject({ code: "ENOENT" });
+    } finally {
+      process.chdir(originalCwd);
+      if (originalLocalAppData === undefined) delete process.env.LOCALAPPDATA;
+      else process.env.LOCALAPPDATA = originalLocalAppData;
+    }
+  });
+
   it("times out a child process and reports process startup failure", async () => {
     await expect(runProcess(process.execPath, ["-e", "setTimeout(() => {}, 5000)"], 25)).rejects.toMatchObject({
       code: "collector_timeout",
@@ -1037,6 +1127,7 @@ describe("Windows collector boundary", () => {
       const built = await collectLiveCase(osPlan(), {
         platform: "win32",
         osRelease: "10.0.26100",
+        osVersion: windows11Product,
         execute: async () => ({
           stdout: encodedCollectorPayload({ status: "ok", items: [osItem] }),
           stderr: "",

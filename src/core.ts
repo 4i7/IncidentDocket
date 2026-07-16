@@ -2,7 +2,7 @@ import { randomUUID } from "node:crypto";
 import { spawn } from "node:child_process";
 import { mkdir, readFile, writeFile } from "node:fs/promises";
 import { isIP } from "node:net";
-import { homedir, release, tmpdir } from "node:os";
+import { homedir, release, tmpdir, version as osVersion } from "node:os";
 import { join, resolve, sep } from "node:path";
 import { fileURLToPath } from "node:url";
 import { z } from "zod";
@@ -612,11 +612,22 @@ export function decodeEventCollectorPayload(stdout: string): z.infer<typeof even
 type LiveCollectionOptions = {
   platform?: NodeJS.Platform;
   osRelease?: string;
+  osVersion?: () => string;
   timeoutMs?: number;
   scriptPath?: string;
   execute?: typeof runProcess;
   collectedAt?: Date;
 };
+
+const WINDOWS_11_PRODUCT_PATTERN = /^Windows 11(?:$| [^\s\r\n][^\r\n]*)$/;
+const WINDOWS_SERVER_PRODUCT_PATTERN = /^(?:Windows Server|Windows 11 Server)(?:$| )/;
+
+// Node 24 exposes ProductName; accept trimmed "Windows 11" plus one edition separator, never Server.
+function isWindows11ProductFamily(value: unknown): boolean {
+  if (typeof value !== "string") return false;
+  const product = value.trim();
+  return WINDOWS_11_PRODUCT_PATTERN.test(product) && !WINDOWS_SERVER_PRODUCT_PATTERN.test(product);
+}
 
 export async function collectLiveCase(
   inputPlan: unknown,
@@ -624,9 +635,19 @@ export async function collectLiveCase(
 ): Promise<{ case: IncidentCase; warnings: WarningCode[] }> {
   const plan = validateNormalizedPlan(inputPlan);
   const platform = options.platform ?? process.platform;
-  const osRelease = options.osRelease ?? release();
-  const windowsBuild = Number(osRelease.split(".")[2]);
-  if (platform !== "win32" || !Number.isInteger(windowsBuild) || windowsBuild < 22_000) {
+  if (platform !== "win32") {
+    throw new IncidentDocketError("unsupported_platform", "Live collection requires Windows 11");
+  }
+  let osRelease: unknown;
+  let productVersion: unknown;
+  try {
+    osRelease = options.osRelease ?? release();
+    productVersion = (options.osVersion ?? osVersion)();
+  } catch {
+    throw new IncidentDocketError("unsupported_platform", "Live collection requires Windows 11");
+  }
+  const windowsBuild = typeof osRelease === "string" ? Number(osRelease.split(".")[2]) : Number.NaN;
+  if (!Number.isInteger(windowsBuild) || windowsBuild < 22_000 || !isWindows11ProductFamily(productVersion)) {
     throw new IncidentDocketError("unsupported_platform", "Live collection requires Windows 11");
   }
   const collectedAt = options.collectedAt ?? new Date();
