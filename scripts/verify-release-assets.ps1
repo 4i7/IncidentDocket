@@ -1,12 +1,17 @@
 [CmdletBinding()]
 param(
-    [Parameter(Mandatory = $true)][string]$ReleaseDirectory,
+    [string]$ReleaseDirectory,
     [string]$ExpectedTgzSha256,
     [string]$ExpectedSetupZipSha256,
     [string]$ExpectedChecksumsSha256
 )
 
 $ErrorActionPreference = 'Stop'
+
+$repoRoot = Split-Path -Parent $PSScriptRoot
+if ([string]::IsNullOrWhiteSpace($ReleaseDirectory)) {
+    $ReleaseDirectory = Join-Path $repoRoot 'artifacts\release'
+}
 
 function Assert-True {
     param([Parameter(Mandatory = $true)][bool]$Condition, [Parameter(Mandatory = $true)][string]$Message)
@@ -59,7 +64,8 @@ function Get-ZipEntryText {
 }
 
 $root = [IO.Path]::GetFullPath($ReleaseDirectory)
-Assert-True (Test-Path -LiteralPath $root -PathType Container) ('Release directory was not found: ' + $root)
+Assert-True (Test-Path -LiteralPath $root) ('Release directory was not found: ' + $root)
+Assert-True (Test-Path -LiteralPath $root -PathType Container) ('Release path is not a directory: ' + $root)
 $expectedFiles = @('incident-docket.tgz', 'incident-docket-windows-setup.zip', 'SHA256SUMS.txt')
 $children = @(Get-ChildItem -LiteralPath $root -Force)
 Assert-True (-not @($children | Where-Object { $_.PSIsContainer }).Count) 'Release directory must not contain subdirectories.'
