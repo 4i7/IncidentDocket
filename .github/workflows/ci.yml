@@ -11,8 +11,10 @@ jobs:
   test:
     runs-on: windows-latest
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-node@v4
+      - uses: actions/checkout@93cb6efe18208431cddfb8368fd83d5badbf9bfd # actions/checkout v5.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@a0853c24544627f65ddf259abe73b1d18a591444 # actions/setup-node v5.0.0
         with:
           node-version: 24
           cache: npm
@@ -26,12 +28,26 @@ jobs:
         run: |
           $packDir = Join-Path $env:RUNNER_TEMP "incident-docket-pack"
           $prefix = Join-Path $env:RUNNER_TEMP "incident-docket-prefix"
-          New-Item -ItemType Directory -Path $packDir, $prefix -Force | Out-Null
+          $storage = Join-Path $env:RUNNER_TEMP "incident-docket-ci-storage"
+          $work = Join-Path $env:RUNNER_TEMP "incident-docket-ci-cwd"
+          New-Item -ItemType Directory -Path $packDir, $prefix, $storage, $work -Force | Out-Null
           $metadata = npm pack --json --pack-destination $packDir | ConvertFrom-Json
           $tarball = Join-Path $packDir $metadata[0].filename
           npm install --global --prefix $prefix $tarball
-          $output = (& (Join-Path $prefix "incident-docket.cmd") demo --fixture gpu-driver-reset) -join "`n"
-          if ($LASTEXITCODE -ne 0) { throw "Packed fixture demo failed" }
+          $before = @(Get-ChildItem -LiteralPath $work -Force | Select-Object -ExpandProperty Name)
+          $oldLocalAppData = $env:LOCALAPPDATA
+          Push-Location -LiteralPath $work
+          try {
+            $env:LOCALAPPDATA = $storage
+            $output = (& (Join-Path $prefix "incident-docket.cmd") demo --fixture gpu-driver-reset) -join "`n"
+            if ($LASTEXITCODE -ne 0) { throw "Packed fixture demo failed" }
+          }
+          finally {
+            $env:LOCALAPPDATA = $oldLocalAppData
+            Pop-Location
+          }
+          $after = @(Get-ChildItem -LiteralPath $work -Force | Select-Object -ExpandProperty Name)
+          if ($null -ne (Compare-Object -ReferenceObject $before -DifferenceObject $after)) { throw "Packed fixture changed its CWD" }
           foreach ($value in @(
             "alex",
             "alex@example.invalid",
@@ -45,3 +61,11 @@ jobs:
               throw "Fixture secret leaked to stdout"
             }
           }
+      - name: Smoke packed MCP
+        shell: pwsh
+        run: |
+          $prefix = Join-Path $env:RUNNER_TEMP "incident-docket-prefix"
+          $entry = Join-Path $prefix "node_modules\incident-docket\dist\index.js"
+          $storage = Join-Path $env:RUNNER_TEMP "incident-docket-ci-mcp-storage"
+          & node scripts/test-packed-mcp.mjs $entry $storage
+          if ($LASTEXITCODE -ne 0) { throw "Packed MCP smoke failed" }

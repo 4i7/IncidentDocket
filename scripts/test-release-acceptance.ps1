@@ -264,95 +264,12 @@ function Invoke-ReleaseBuild {
 
 function Invoke-McpSmoke {
     param([Parameter(Mandatory = $true)][string]$EntryPath, [Parameter(Mandatory = $true)][string]$StorageRoot)
-    $smokePath = Join-Path $testRoot 'packed-mcp-smoke.mjs'
-    $smokeText = @'
-import { spawn } from "node:child_process";
-import process from "node:process";
-const entry = process.argv[2];
-const storage = process.argv[3];
-    const child = spawn(process.execPath, [entry, "mcp"], { stdio: ["pipe", "pipe", "pipe"], env: { ...process.env, LOCALAPPDATA: storage } });
-    let buffer = Buffer.alloc(0);
-    let stderr = "";
-    let sentTools = false;
-    let plan;
-    let collected;
-    let eventId;
-    let snapshotId;
-    let toolNames = [];
-    function call(id, name, args) { send({ jsonrpc: "2.0", id, method: "tools/call", params: { name, arguments: args } }); }
-    function successResult(message) {
-      if (message.result?.isError) fail("packed MCP returned an unexpected tool error");
-      const structured = message.result?.structuredContent;
-      const text = message.result?.content?.[0]?.text;
-      if (!structured || text !== JSON.stringify(structured)) fail("structuredContent/TextContent mismatch");
-      return structured;
-    }
-    function expectedError(message) {
-      if (!message.result?.isError) fail("packed MCP accepted an invalid request");
-    }
-function send(message) {
-  child.stdin.write(JSON.stringify(message) + "\n");
-}
-function fail(message) { child.kill(); console.error(message); process.exit(1); }
-child.stderr.on("data", (chunk) => { stderr += chunk.toString(); });
-child.stdout.on("data", (chunk) => {
-  buffer = Buffer.concat([buffer, chunk]);
-  while (true) {
-    const marker = buffer.indexOf(10);
-    if (marker < 0) return;
-    const message = JSON.parse(buffer.subarray(0, marker).toString("utf8").replace(/\r$/, ""));
-    buffer = buffer.subarray(marker + 1);
-    if (message.id === 1 && !sentTools) {
-      sentTools = true;
-      send({ jsonrpc: "2.0", method: "notifications/initialized" });
-      send({ jsonrpc: "2.0", id: 2, method: "tools/list", params: {} });
-    } else if (message.id === 2) {
-      const tools = message.result?.tools ?? [];
-      if (tools.length !== 4) fail(`packed MCP exposed ${tools.length} tools`);
-      toolNames = tools.map((tool) => tool.name).sort();
-      call(3, "plan_collection", { problem: "fixture release acceptance", incident_time: "2026-07-16T09:30:00+09:00", before_minutes: 5, after_minutes: 5, sources: ["system_events", "application_events", "os", "display_drivers"] });
-    } else if (message.id === 3) {
-      plan = successResult(message).plan;
-      call(4, "collect_incident_window", { plan, mode: "fixture", fixture_name: "gpu-driver-reset" });
-    } else if (message.id === 4) {
-      collected = successResult(message);
-      eventId = collected.evidence_index.find((item) => item.temporal_kind === "incident_event")?.id;
-      snapshotId = collected.evidence_index.find((item) => item.temporal_kind === "collection_snapshot")?.id;
-      if (!eventId || !snapshotId) fail("packed MCP fixture evidence index was incomplete");
-      call(5, "inspect_evidence", { case_id: collected.case_id, evidence_ids: [eventId] });
-    } else if (message.id === 5) {
-      successResult(message);
-      call(6, "inspect_evidence", { case_id: collected.case_id, evidence_ids: ["EV-999"] });
-    } else if (message.id === 6) {
-      expectedError(message);
-      call(7, "export_support_report", { case_id: collected.case_id, outcome: "hypotheses", summary: "snapshot-only negative test", hypotheses: [{ rank: 1, title: "Snapshot only", confidence: "low", explanation: "Not enough", evidence_ids: [snapshotId], not_proven: ["Not proven"] }], missing_evidence: [], next_steps: ["Collect more"] });
-    } else if (message.id === 7) {
-      expectedError(message);
-      call(8, "export_support_report", { case_id: collected.case_id, outcome: "hypotheses", summary: "bounded hypothesis", hypotheses: [{ rank: 1, title: "Fixture event", confidence: "low", explanation: "A bounded fixture observation", evidence_ids: [eventId], not_proven: ["This does not prove causation"] }], missing_evidence: [], next_steps: ["Review evidence"] });
-    } else if (message.id === 8) {
-      const report = successResult(message);
-      if ((report.markdown.match(/Temporal proximity does not prove causation\./g) ?? []).length !== 1) fail("hypothesis report warning count was not one");
-      call(9, "export_support_report", { case_id: collected.case_id, outcome: "insufficient_evidence", summary: "Insufficient evidence", hypotheses: [], missing_evidence: ["Need more event context"], next_steps: ["Collect more"] });
-    } else if (message.id === 9) {
-      const report = successResult(message);
-      if ((report.markdown.match(/Temporal proximity does not prove causation\./g) ?? []).length !== 1) fail("insufficient report warning count was not one");
-      if (stderr.trim() !== "") fail("packed MCP wrote stderr");
-      console.log(JSON.stringify({ tool_count: toolNames.length, names: toolNames, flow: "plan-collect-inspect-export" }));
-      child.kill();
-      process.exit(0);
-    }
-  }
-});
-send({ jsonrpc: "2.0", id: 1, method: "initialize", params: { protocolVersion: "2024-11-05", capabilities: {}, clientInfo: { name: "release-acceptance", version: "1" } } });
-setTimeout(() => fail("packed MCP smoke timed out"), 30000);
-'@
-    [IO.File]::WriteAllText($smokePath, $smokeText, [Text.Encoding]::UTF8)
     $outPath = Join-Path $testRoot 'packed-mcp-smoke.out'
     $errPath = Join-Path $testRoot 'packed-mcp-smoke.err'
     $oldPreference = $ErrorActionPreference
     $ErrorActionPreference = 'Continue'
     try {
-        & $nodePath $smokePath $EntryPath $StorageRoot 1>$outPath 2>$errPath
+        & $nodePath (Join-Path $repoRoot 'scripts/test-packed-mcp.mjs') $EntryPath $StorageRoot 1>$outPath 2>$errPath
         $smokeExitCode = $LASTEXITCODE
     }
     finally {
