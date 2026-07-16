@@ -31,6 +31,8 @@ export const warningSchema = z.enum([
   "privacy_review_required",
 ]);
 
+export const TEMPORAL_PROXIMITY_WARNING = "Temporal proximity does not prove causation.";
+
 const RFC3339 = /^(\d{4})-(\d{2})-(\d{2})T(\d{2}):(\d{2}):(\d{2})(?:\.(\d{1,3}))?(Z|[+-]\d{2}:\d{2})$/;
 const uuidSchema = z.string().uuid();
 const rfc3339Schema = z.string().refine(isValidRfc3339, "Expected an offset RFC3339 timestamp");
@@ -249,24 +251,97 @@ export class IncidentDocketError extends Error {
 
 export function normalizePlan(input: unknown): { plan: NormalizedPlan; warnings: WarningCode[] } {
   const value = planInputSchema.parse(input);
-  const incident = new Date(value.incident_time);
-  const maskedProblem = truncate(sanitizeText(value.problem).text, 2_000);
   const offset = RFC3339.exec(value.incident_time)?.[8];
   if (!offset) throw new IncidentDocketError("invalid_input", "Incident time is invalid");
 
   return {
-    plan: normalizedPlanSchema.parse({
-      problem: maskedProblem,
-      incident_time_utc: incident.toISOString(),
-      original_utc_offset: offset,
-      before_minutes: value.before_minutes,
-      after_minutes: value.after_minutes,
-      window_start_utc: new Date(incident.getTime() - value.before_minutes * 60_000).toISOString(),
-      window_end_utc: new Date(incident.getTime() + value.after_minutes * 60_000).toISOString(),
+    plan: canonicalizePlan({
+      problem: value.problem,
+      incidentTime: value.incident_time,
+      originalOffset: offset,
+      beforeMinutes: value.before_minutes,
+      afterMinutes: value.after_minutes,
       sources: value.sources,
     }),
     warnings: ["snapshot_is_collection_time", "privacy_review_required"],
   };
+}
+
+export function validateNormalizedPlan(input: unknown): NormalizedPlan {
+  const supplied = normalizedPlanSchema.parse(input);
+  if (
+    !isCanonicalUtcTimestamp(supplied.incident_time_utc) ||
+    !isCanonicalUtcTimestamp(supplied.window_start_utc) ||
+    !isCanonicalUtcTimestamp(supplied.window_end_utc)
+  ) {
+    throw new IncidentDocketError("invalid_input", "Collection plan timestamps must be canonical UTC");
+  }
+
+  const canonical = canonicalizePlan({
+    problem: supplied.problem,
+    incidentTime: supplied.incident_time_utc,
+    originalOffset: supplied.original_utc_offset,
+    beforeMinutes: supplied.before_minutes,
+    afterMinutes: supplied.after_minutes,
+    sources: supplied.sources,
+  });
+  if (canonicalJson(canonical) !== canonicalJson(supplied)) {
+    throw new IncidentDocketError("invalid_input", "Collection plan failed canonical validation");
+  }
+  return canonical;
+}
+
+type CanonicalPlanInput = {
+  problem: string;
+  incidentTime: string;
+  originalOffset: string;
+  beforeMinutes: number;
+  afterMinutes: number;
+  sources: Source[];
+};
+
+function canonicalizePlan(input: CanonicalPlanInput): NormalizedPlan {
+  if (input.problem.length < 1 || input.problem.length > 2_000) {
+    throw new IncidentDocketError("invalid_input", "Problem must be between 1 and 2,000 characters");
+  }
+  if (
+    !Number.isInteger(input.beforeMinutes) ||
+    input.beforeMinutes < 0 ||
+    input.beforeMinutes > 30 ||
+    !Number.isInteger(input.afterMinutes) ||
+    input.afterMinutes < 0 ||
+    input.afterMinutes > 30 ||
+    (input.beforeMinutes === 0 && input.afterMinutes === 0)
+  ) {
+    throw new IncidentDocketError("invalid_input", "Collection window must be between 0 and 30 minutes on each side");
+  }
+  if (!isValidUtcOffset(input.originalOffset)) {
+    throw new IncidentDocketError("invalid_input", "Original UTC offset is invalid");
+  }
+  const sources = z.array(sourceSchema).min(1).max(4).refine(isUnique, "Sources must be unique").parse(input.sources);
+  const incident = new Date(input.incidentTime);
+  const incidentMs = incident.getTime();
+  if (!Number.isFinite(incidentMs)) throw new IncidentDocketError("invalid_input", "Incident time is invalid");
+
+  const problem = truncate(sanitizeText(input.problem).text, 2_000);
+  const start = new Date(incidentMs - input.beforeMinutes * 60_000);
+  const end = new Date(incidentMs + input.afterMinutes * 60_000);
+  const plan = normalizedPlanSchema.parse({
+    problem,
+    incident_time_utc: incident.toISOString(),
+    original_utc_offset: input.originalOffset,
+    before_minutes: input.beforeMinutes,
+    after_minutes: input.afterMinutes,
+    window_start_utc: start.toISOString(),
+    window_end_utc: end.toISOString(),
+    sources,
+  });
+  const startMs = new Date(plan.window_start_utc).getTime();
+  const endMs = new Date(plan.window_end_utc).getTime();
+  if (!(startMs <= incidentMs && incidentMs <= endMs)) {
+    throw new IncidentDocketError("invalid_input", "Collection window does not contain the incident");
+  }
+  return plan;
 }
 
 type BuildCaseInput = {
@@ -289,7 +364,7 @@ type Draft = {
 };
 
 export function buildCase(input: BuildCaseInput): { case: IncidentCase; warnings: WarningCode[] } {
-  const plan = normalizedPlanSchema.parse(input.plan);
+  const plan = validateNormalizedPlan(input.plan);
   const rows = collectionRowsSchema.parse(input.rows);
   const collectedAt = input.collectedAt ?? new Date();
   const collectedAtMs = collectedAt.getTime();
@@ -547,7 +622,7 @@ export async function collectLiveCase(
   inputPlan: unknown,
   options: LiveCollectionOptions = {},
 ): Promise<{ case: IncidentCase; warnings: WarningCode[] }> {
-  const plan = normalizedPlanSchema.parse(inputPlan);
+  const plan = validateNormalizedPlan(inputPlan);
   const platform = options.platform ?? process.platform;
   const osRelease = options.osRelease ?? release();
   const windowsBuild = Number(osRelease.split(".")[2]);
@@ -737,14 +812,18 @@ export function renderTimeline(value: IncidentCase): string {
     "## Incident timeline",
     "",
     ...(events.length
-      ? events.map((item) => `- ${item.timestamp_utc} **${item.id}** ${escapeMarkdown(item.summary)}`)
+      ? events.map((item) => `- ${item.timestamp_utc} **${item.id}** ${renderMarkdownText(item.summary)}`)
       : ["- No incident events were collected."]),
     "",
     "## Current state at collection time",
     "",
     ...(snapshots.length
-      ? snapshots.map((item) => `- **${item.id}** ${escapeMarkdown(item.summary)}`)
+      ? snapshots.map((item) => `- **${item.id}** ${renderMarkdownText(item.summary)}`)
       : ["- No collection snapshots were collected."]),
+    "",
+    "## Interpretation boundary",
+    "",
+    TEMPORAL_PROXIMITY_WARNING,
     "",
     "## Privacy review",
     "",
@@ -837,7 +916,11 @@ export function renderSupportReport(value: IncidentCase, report: ReportInput, re
     "",
     "## Summary",
     "",
-    escapeMarkdown(report.summary),
+    renderMarkdownText(report.summary),
+    "",
+    "## Interpretation boundary",
+    "",
+    TEMPORAL_PROXIMITY_WARNING,
     "",
     "## Collection coverage",
     "",
@@ -851,16 +934,16 @@ export function renderSupportReport(value: IncidentCase, report: ReportInput, re
     lines.push("## Hypotheses", "");
     for (const hypothesis of report.hypotheses) {
       lines.push(
-        `### ${hypothesis.rank}. ${escapeMarkdown(hypothesis.title)}`,
+        `### ${hypothesis.rank}. ${renderMarkdownText(hypothesis.title)}`,
         "",
         `Confidence: ${hypothesis.confidence}`,
         "",
-        escapeMarkdown(hypothesis.explanation),
+        renderMarkdownText(hypothesis.explanation),
         "",
         `Evidence: ${hypothesis.evidence_ids.map((id) => `**${id}**`).join(", ")}`,
         "",
         "Not proven:",
-        ...hypothesis.not_proven.map((item) => `- ${escapeMarkdown(item)}`),
+        ...hypothesis.not_proven.map((item) => `- ${renderMarkdownText(item)}`),
         "",
       );
     }
@@ -872,13 +955,13 @@ export function renderSupportReport(value: IncidentCase, report: ReportInput, re
     "## Missing evidence",
     "",
     ...(report.missing_evidence.length
-      ? report.missing_evidence.map((item) => `- ${escapeMarkdown(item)}`)
+      ? report.missing_evidence.map((item) => `- ${renderMarkdownText(item)}`)
       : ["- None identified."]),
     "",
     "## Next steps",
     "",
     ...(report.next_steps.length
-      ? report.next_steps.map((item) => `- ${escapeMarkdown(item)}`)
+      ? report.next_steps.map((item) => `- ${renderMarkdownText(item)}`)
       : ["- No next steps supplied."]),
     "",
     "## Privacy review",
@@ -898,14 +981,21 @@ export function escapeMarkdown(input: string): string {
     .replace(/([\\`*_{}\[\]()!|#])/g, "\\$1");
 }
 
+function renderMarkdownText(input: string): string {
+  return escapeMarkdown(input.replace(new RegExp(escapeRegExp(TEMPORAL_PROXIMITY_WARNING), "gi"), ""));
+}
+
 export function sanitizeText(input: string): { text: string; masked: number; unsafe: number } {
   let text = input.replace(/[\u0000-\u0008\u000B\u000C\u000E-\u001F\u007F]/g, " ");
   let masked = 0;
   let unsafe = 0;
-  text = text.replace(/!?\[[^\]\r\n]{0,300}\]\([^\)\r\n]{0,1000}\)|<[^>\r\n]{1,1000}>|`+/g, () => {
-    unsafe += 1;
-    return "REDACTED_MARKUP";
-  });
+  text = text.replace(
+    /!?\[[^\]\r\n]{0,300}\]\([^\)\r\n]{0,1000}\)|<(?!REDACTED_(?:COMPUTER|DOMAIN|EMAIL|GUID|IP|MAC|MARKUP|PATH|PROMPT_INJECTION|SECRET|SID|UNC|UNSAFE_MESSAGE|USER)>)[^>\r\n]{1,1000}>|`+/g,
+    () => {
+      unsafe += 1;
+      return "REDACTED_MARKUP";
+    },
+  );
   text = text.replace(/[A-Fa-f0-9:]{2,}/g, (candidate) => {
     if (!candidate.includes(":") || isIP(candidate) !== 6) return candidate;
     masked += 1;
@@ -1091,6 +1181,17 @@ function isValidRfc3339(value: string): boolean {
     if (offsetHour === undefined || offsetMinute === undefined || offsetHour > 23 || offsetMinute > 59) return false;
   }
   return Number.isFinite(Date.parse(value));
+}
+
+function isValidUtcOffset(value: string): boolean {
+  if (value === "Z") return true;
+  const match = /^(?:[+-])(\d{2}):(\d{2})$/.exec(value);
+  return match !== null && Number(match[1]) <= 23 && Number(match[2]) <= 59;
+}
+
+function isCanonicalUtcTimestamp(value: string): boolean {
+  const parsed = new Date(value);
+  return Number.isFinite(parsed.getTime()) && parsed.toISOString() === value;
 }
 
 function escapeRegExp(value: string): string {

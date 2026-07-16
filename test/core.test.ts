@@ -22,6 +22,8 @@ import {
   sanitizeText,
   saveCase,
   symbolicCaseLocation,
+  TEMPORAL_PROXIMITY_WARNING,
+  validateNormalizedPlan,
   validateReportInput,
 } from "../src/core.js";
 import { createMcpServer } from "../src/index.js";
@@ -137,6 +139,31 @@ function driverPlan() {
   }).plan;
 }
 
+function forgedPlanCases(base: ReturnType<typeof eventPlan>): Array<[string, Record<string, unknown>]> {
+  return [
+    ["raw username", { ...base, problem: "fixture-user" }],
+    ["2,001 character problem", { ...base, problem: "x".repeat(2_001) }],
+    ["offset-free incident", { ...base, incident_time_utc: "2026-07-16T00:30:00.000" }],
+    ["before over limit", { ...base, before_minutes: 31 }],
+    ["after over limit", { ...base, after_minutes: 31 }],
+    ["both sides zero", { ...base, before_minutes: 0, after_minutes: 0 }],
+    ["unrelated start", { ...base, window_start_utc: "2020-01-01T00:00:00.000Z" }],
+    ["unrelated end", { ...base, window_end_utc: "2020-01-01T00:05:00.000Z" }],
+    ["start after incident", { ...base, window_start_utc: "2026-07-16T00:40:00.000Z" }],
+    ["end before incident", { ...base, window_end_utc: "2026-07-16T00:20:00.000Z" }],
+    ["non-canonical UTC", { ...base, incident_time_utc: "2026-07-16T00:30:00Z" }],
+    ["duplicate source", { ...base, sources: ["system_events", "system_events"] }],
+    ["unknown source", { ...base, sources: ["unknown"] }],
+    ["unknown field", { ...base, unexpected: true }],
+    ["forged 2020 window", {
+      ...base,
+      window_start_utc: "2020-01-01T00:00:00.000Z",
+      window_end_utc: "2020-01-01T00:05:00.000Z",
+    }],
+    ["arithmetic mismatch", { ...base, window_end_utc: "2026-07-16T00:36:00.000Z" }],
+  ];
+}
+
 describe("schema and deterministic core", () => {
   it("normalizes offsets and rejects invalid windows", () => {
     const normalized = normalizePlan({
@@ -149,6 +176,20 @@ describe("schema and deterministic core", () => {
     expect(normalized.plan.incident_time_utc).toBe("2026-07-16T00:30:00.000Z");
     expect(normalized.plan.window_start_utc).toBe("2026-07-16T00:25:00.000Z");
     expect(normalized.plan.window_end_utc).toBe("2026-07-16T00:40:00.000Z");
+    for (const [incident_time, before_minutes, after_minutes] of [
+      ["2026-07-16T00:30:00Z", 0, 5],
+      ["2026-07-16T09:30:00+09:00", 5, 0],
+      ["2026-07-16T09:30:00+09:00", 5, 5],
+    ] as const) {
+      const positive = normalizePlan({
+        problem: "Valid collection window",
+        incident_time,
+        before_minutes,
+        after_minutes,
+        sources: ["system_events"],
+      }).plan;
+      expect(validateNormalizedPlan(positive)).toEqual(positive);
+    }
     expect(() =>
       normalizePlan({
         problem: "x",
@@ -234,6 +275,99 @@ describe("schema and deterministic core", () => {
     expect(markdown).not.toContain("<script>");
     expect(markdown).not.toContain("![click]");
     expect(markdown).toContain("&lt;REDACTED\\_PATH&gt;");
+    expect(markdown.split(TEMPORAL_PROXIMITY_WARNING).length - 1).toBe(1);
+    const duplicateWarning = renderTimeline(
+      buildCase({
+        plan: eventPlan(),
+        mode: "fixture",
+        rows: rowsWithEvents([eventItem({ Message: TEMPORAL_PROXIMITY_WARNING })]),
+        collectedAt: new Date("2026-07-16T00:35:00.000Z"),
+      }).case,
+    );
+    expect(duplicateWarning.split(TEMPORAL_PROXIMITY_WARNING).length - 1).toBe(1);
+  });
+});
+
+describe("canonical collection plan boundary", () => {
+  it("rejects forged normalized plans before any live collector process starts", async () => {
+    const originalUsername = process.env.USERNAME;
+    process.env.USERNAME = "fixture-user";
+    const base = eventPlan();
+    const cases = forgedPlanCases(base);
+    try {
+      const masked = normalizePlan({
+        problem: "C:\\Users\\fixture-user\\secret.txt",
+        incident_time: "2026-07-16T09:30:00+09:00",
+        before_minutes: 5,
+        after_minutes: 5,
+        sources: ["system_events"],
+      }).plan;
+      expect(validateNormalizedPlan(masked)).toEqual(masked);
+      let collectorCalls = 0;
+      for (const [name, forged] of cases) {
+        await expect(
+          collectLiveCase(forged, {
+            platform: "win32",
+            osRelease: "10.0.26100",
+            execute: async () => {
+              collectorCalls += 1;
+              return { stdout: "", stderr: "" };
+            },
+          }),
+          name,
+        ).rejects.toThrow();
+        expect(() => buildCase({ plan: forged, mode: "fixture", rows: rowsWithEvents() }), name).toThrow();
+      }
+      expect(collectorCalls).toBe(0);
+      expect(() => validateNormalizedPlan({ ...base, problem: "fixture-user" })).toThrow();
+    } finally {
+      if (originalUsername === undefined) delete process.env.USERNAME;
+      else process.env.USERNAME = originalUsername;
+    }
+  });
+
+  it("rejects forged plans through the MCP boundary without creating a case", async () => {
+    const root = await temporaryDirectory();
+    const originalUsername = process.env.USERNAME;
+    process.env.USERNAME = "fixture-user";
+    const server = createMcpServer(root);
+    const client = new Client({ name: "incident-docket-plan-boundary-test", version: "1.0.0" });
+    const [clientTransport, serverTransport] = InMemoryTransport.createLinkedPair();
+    await server.connect(serverTransport);
+    await client.connect(clientTransport);
+    try {
+      const planned = await client.callTool({
+        name: "plan_collection",
+        arguments: {
+          problem: "Example render reset",
+          incident_time: "2026-07-16T09:30:00+09:00",
+          before_minutes: 5,
+          after_minutes: 5,
+          sources: ["system_events"],
+        },
+      });
+      const plan = (planned.structuredContent as { plan: Record<string, unknown> }).plan;
+      for (const [name, forged] of forgedPlanCases(plan as ReturnType<typeof eventPlan>)) {
+        const beforeCwd = process.cwd();
+        const result = await client.callTool({
+          name: "collect_incident_window",
+          arguments: { plan: forged, mode: "fixture", fixture_name: "gpu-driver-reset" },
+        });
+        expect(result.isError, name).toBe(true);
+        expect(process.cwd(), name).toBe(beforeCwd);
+        const serialized = JSON.stringify(result);
+        expect(serialized, name).not.toContain("fixture-user");
+        expect(serialized, name).not.toContain("2020-01-01");
+        expect(serialized, name).not.toContain("at ");
+        expect(serialized, name).not.toContain(root);
+      }
+      expect(await readdir(join(root, "cases")).catch(() => [])).toEqual([]);
+    } finally {
+      await client.close();
+      await server.close();
+      if (originalUsername === undefined) delete process.env.USERNAME;
+      else process.env.USERNAME = originalUsername;
+    }
   });
 });
 
@@ -304,13 +438,13 @@ describe("inspection and report export", () => {
     const input = {
       case_id: built.case.case_id,
       outcome: "hypotheses",
-      summary: "[click](https://example.invalid) <script>alert(1)</script>",
+      summary: `${TEMPORAL_PROXIMITY_WARNING} [click](https://example.invalid) <script>alert(1)</script>`,
       hypotheses: [
         {
           rank: 1,
           title: "Display reset",
           confidence: "medium",
-          explanation: "EV-001 occurred near the incident.",
+          explanation: `EV-001 occurred near the incident. ${TEMPORAL_PROXIMITY_WARNING}`,
           evidence_ids: ["EV-001"],
           not_proven: ["Temporal proximity is not causation."],
         },
@@ -325,9 +459,23 @@ describe("inspection and report export", () => {
     expect(first.markdown).not.toContain("<script>");
     expect(first.markdown).not.toContain("[click](https://example.invalid)");
     expect(first.markdown).toContain("EV-001");
+    expect(first.markdown.split(TEMPORAL_PROXIMITY_WARNING).length - 1).toBe(1);
     expect(
       await readFile(join(root, "reports", `report-${first.report_id}.md`), "utf8"),
     ).toBe(first.markdown);
+    const insufficient = await exportSupportReport(
+      built.case,
+      {
+        case_id: built.case.case_id,
+        outcome: "insufficient_evidence",
+        summary: TEMPORAL_PROXIMITY_WARNING,
+        hypotheses: [],
+        missing_evidence: ["A bounded incident event is missing."],
+        next_steps: [],
+      },
+      root,
+    );
+    expect(insufficient.markdown.split(TEMPORAL_PROXIMITY_WARNING).length - 1).toBe(1);
   });
 });
 

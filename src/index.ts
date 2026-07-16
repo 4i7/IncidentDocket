@@ -29,6 +29,7 @@ import {
   saveCase,
   saveDemoFiles,
   symbolicCaseLocation,
+  validateNormalizedPlan,
   warningSchema,
 } from "./core.js";
 
@@ -142,14 +143,15 @@ export function createMcpServer(storageRoot?: string): McpServer {
     },
     async (input) =>
       toolResult(async () => {
+        const plan = validateNormalizedPlan(input.plan);
         const built =
           input.mode === "fixture"
             ? buildCase({
-                plan: input.plan,
+                plan,
                 mode: "fixture",
                 rows: fixtureRows(await loadFixture()),
               })
-            : await collectLiveCase(input.plan);
+            : await collectLiveCase(plan);
         await saveCase(built.case, storageRoot ?? defaultStorageRoot(input.mode));
         return {
           case_id: built.case.case_id,
