@@ -1,0 +1,32 @@
+{
+  "name": "incident-docket",
+  "version": "0.1.0",
+  "description": "Privacy-bounded Windows incident evidence collector for developers",
+  "type": "module",
+  "bin": {
+    "incident-docket": "dist/index.js"
+  },
+  "files": [
+    "dist",
+    "collectors",
+    "samples"
+  ],
+  "engines": {
+    "node": ">=22"
+  },
+  "scripts": {
+    "build": "tsc -p tsconfig.json",
+    "test": "vitest run",
+    "prepack": "npm run build"
+  },
+  "dependencies": {
+    "@modelcontextprotocol/sdk": "1.29.0",
+    "zod": "4.4.3"
+  },
+  "devDependencies": {
+    "@types/node": "24.13.3",
+    "typescript": "7.0.2",
+    "vitest": "4.1.10"
+  },
+  "license": "MIT"
+}

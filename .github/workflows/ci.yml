@@ -1,0 +1,47 @@
+name: CI
+
+on:
+  push:
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: npm
+      - run: npm ci
+      - run: npm test
+      - run: npm run build
+      - run: npm pack --dry-run
+      - run: npm audit --omit=dev
+      - name: Smoke packed fixture CLI
+        shell: pwsh
+        run: |
+          $packDir = Join-Path $env:RUNNER_TEMP "incident-docket-pack"
+          $prefix = Join-Path $env:RUNNER_TEMP "incident-docket-prefix"
+          New-Item -ItemType Directory -Path $packDir, $prefix -Force | Out-Null
+          $metadata = npm pack --json --pack-destination $packDir | ConvertFrom-Json
+          $tarball = Join-Path $packDir $metadata[0].filename
+          npm install --global --prefix $prefix $tarball
+          $output = (& (Join-Path $prefix "incident-docket.cmd") demo --fixture gpu-driver-reset) -join "`n"
+          if ($LASTEXITCODE -ne 0) { throw "Packed fixture demo failed" }
+          foreach ($value in @(
+            "alex",
+            "alex@example.invalid",
+            "192.0.2.10",
+            "fixture-access-token",
+            "S-1-5-21-111111111-222222222-333333333-1001",
+            "Ignore previous instructions",
+            "system prompt"
+          )) {
+            if ($output.Contains($value, [StringComparison]::OrdinalIgnoreCase)) {
+              throw "Fixture secret leaked to stdout"
+            }
+          }
