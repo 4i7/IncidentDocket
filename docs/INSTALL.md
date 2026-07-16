@@ -1,45 +1,87 @@
 # IncidentDocket installation
 
-## Prerequisites
+## Prerequisites and network boundary
 
-- Node.js 22 or later
-- npm
-- Codex CLI only when using the MCP workflow
-
-Installing the package does not start live collection. Live collection is an explicit MCP operation and is supported only on Windows 11.
+- Node.js 22 or later, including npm.
+- Windows 11 is required for live collection; the fixture demo also works on macOS and Linux.
+- Codex CLI is required only when registering the MCP server.
+- Network access is needed to download the Release assets and may be needed by npm to resolve the package's production dependencies. The installer itself does not download scripts or run live collection.
 
 ## Recommended Windows setup
 
-1. Download `incident-docket-windows-setup.zip` from the latest Release.
-2. Extract the ZIP to a directory you control.
-3. In PowerShell, run:
+Download both `incident-docket-windows-setup.zip` and `SHA256SUMS.txt` from the same [latest Release](https://github.com/4i7/IncidentDocket/releases/latest) into a directory you control. Verify the ZIP before extracting or running anything from it:
 
 ```powershell
-.\install.ps1 -RegisterCodexMcp
+$matches = @(
+  Get-Content .\SHA256SUMS.txt |
+  Where-Object { $_ -match '^[0-9A-Fa-f]{64}\s+incident-docket-windows-setup\.zip$' }
+)
+
+if ($matches.Count -ne 1) {
+  throw "Expected exactly one checksum entry for incident-docket-windows-setup.zip."
+}
+
+$expected = (($matches[0] -split '\s+')[0]).ToLowerInvariant()
+$actual = (Get-FileHash .\incident-docket-windows-setup.zip -Algorithm SHA256).Hash.ToLowerInvariant()
+
+if ($actual -ne $expected) {
+  throw "Setup ZIP checksum mismatch. Do not extract or run it."
+}
+
+Expand-Archive .\incident-docket-windows-setup.zip .\incident-docket-setup -Force
+Set-Location .\incident-docket-setup
+
+powershell.exe -NoProfile -ExecutionPolicy Bypass -File .\install.ps1 -RegisterCodexMcp
 ```
 
-The installer validates `PACKAGE_SHA256.txt`, installs the bundled tarball globally, and runs the synthetic fixture demo. It does not request administrator elevation or collect live evidence.
+`ExecutionPolicy Bypass` applies only to this new PowerShell process. Do not use `Set-ExecutionPolicy`; `Unblock-File` is not required. This process-scoped command is intended for a checksum-verified ZIP when a Restricted policy or Mark-of-the-Web attachment would otherwise block the extracted script. Never pipe a downloaded script to `Invoke-Expression` or `iex`.
 
-If Codex CLI is not installed, package installation and fixture verification still complete; run the MCP registration command after installing Codex.
+The installer verifies the bundled `incident-docket.tgz`, installs that exact local file globally, runs the synthetic fixture demo, and then handles MCP registration. It never starts live collection and does not request administrator elevation.
+
+If `-RegisterCodexMcp` is supplied and Codex CLI is missing, the installer fails before npm starts. Install Codex CLI and rerun the command, or rerun without the flag for package-only installation:
+
+```powershell
+powershell.exe -NoProfile -ExecutionPolicy Bypass -File .\install.ps1
+```
+
+After a successful registration, restart Codex and manually confirm these four tools are available: `plan_collection`, `collect_incident_window`, `inspect_evidence`, and `export_support_report`.
 
 ## Manual tarball install
 
-Download `incident-docket.tgz` and verify its SHA-256 value against `SHA256SUMS.txt`, then run:
+Download `incident-docket.tgz` and `SHA256SUMS.txt` from the same Release into one directory. Verify and install the same local file; do not replace it with a latest-download URL after verification:
 
 ```powershell
+$matches = @(
+  Get-Content .\SHA256SUMS.txt |
+  Where-Object { $_ -match '^[0-9A-Fa-f]{64}\s+incident-docket\.tgz$' }
+)
+
+if ($matches.Count -ne 1) {
+  throw "Expected exactly one checksum entry for incident-docket.tgz."
+}
+
+$expected = (($matches[0] -split '\s+')[0]).ToLowerInvariant()
+$actual = (Get-FileHash .\incident-docket.tgz -Algorithm SHA256).Hash.ToLowerInvariant()
+
+if ($actual -ne $expected) {
+  throw "Package checksum mismatch."
+}
+
 npm install --global .\incident-docket.tgz
 incident-docket demo --fixture gpu-driver-reset
 ```
 
-## MCP registration
+## MCP registration and failure recovery
 
-Codex is needed only for the MCP reasoning workflow:
+The installer uses the current Codex CLI JSON inspection command:
 
 ```powershell
-codex mcp add incident_docket -- incident-docket mcp
+codex mcp get incident_docket --json
 ```
 
-The server exposes `plan_collection`, `collect_incident_window`, `inspect_evidence`, and `export_support_report` over stdio.
+An absent entry is added as `codex mcp add incident_docket -- incident-docket mcp` and then read back and checked. A correct existing entry is left unchanged. An existing entry with a different command or args is never removed or overwritten; inspect it, correct it manually, and rerun the installer. The expected entry is command `incident-docket`, args `['mcp']`, and enabled when Codex reports an enabled state.
+
+If npm installation, fixture verification, MCP add, or post-add validation fails, the installer exits non-zero and names the failed stage. No automatic rollback is attempted. Review the global package before using the recovery command `npm uninstall --global incident-docket`; review an existing MCP entry before any manual `codex mcp remove`.
 
 ## Fixture and live collection
 
@@ -47,35 +89,26 @@ The fixture demo works on Node.js 22 or later on Windows, macOS, and Linux. Live
 
 ## Updating
 
-Download the new setup ZIP from the latest Release and run `install.ps1` again. The installer verifies the bundled package before replacing the global installation.
+Download and checksum-verify a new setup ZIP, extract it, and run `install.ps1` again. The installer verifies the bundled package before installing it.
 
 ## Uninstalling
 
-From an extracted setup ZIP, run:
+From an extracted setup ZIP, remove the global package:
 
 ```powershell
 .\uninstall.ps1
 ```
 
-To remove the IncidentDocket Codex MCP registration as well:
+To also remove the IncidentDocket MCP registration:
 
 ```powershell
 .\uninstall.ps1 -RemoveCodexMcp
 ```
 
-Both operations are safe to repeat when the package or MCP entry is absent.
+Package removal and MCP removal are independent. The script removes an MCP entry only when its inspected command is exactly `incident-docket` with args `['mcp']`; an unrelated same-name entry is preserved and reported. Missing npm, package, Codex, or MCP entry is handled as an idempotent/partial result without automatic elevation.
 
-## Hash verification
+Case and report data under the symbolic path `%LOCALAPPDATA%\IncidentDocket` are intentionally retained. Review the files for privacy, then remove them manually if desired; uninstall does not delete user evidence automatically.
 
-`SHA256SUMS.txt` covers the two Release assets. The setup ZIP also includes `PACKAGE_SHA256.txt`; `install.ps1` refuses to install when the bundled tarball hash does not match.
+## Hash verification and privacy
 
-## Privacy boundary
-
-IncidentDocket accepts only allowlisted fields, masks known sensitive identifiers, and never returns raw collector output. Masking is not complete anonymization. Review every timeline and report before sharing it, and never place real machine or user data in fixtures or commits.
-
-## Troubleshooting
-
-- If Node.js or npm is missing, install Node.js 22 or later and rerun the installer.
-- If the package hash fails, download the complete setup ZIP again and compare it with `SHA256SUMS.txt`.
-- If the fixture demo fails, fix the reported installation or PATH issue before using MCP.
-- If Codex registration is incomplete, run the registration command manually after installing Codex CLI.
+`SHA256SUMS.txt` covers `incident-docket.tgz` and `incident-docket-windows-setup.zip`. The setup ZIP includes `PACKAGE_SHA256.txt` for the exact bundled tarball. Masking is not complete anonymization: review every timeline and report before sharing, and do not publish real machine/user data or a Codex Session ID.

@@ -1,0 +1,12 @@
+.gitattributes text eol=lf
+*.ps1 text eol=lf
+*.md text eol=lf
+*.json text eol=lf
+*.js text eol=lf
+*.ts text eol=lf
+*.yml text eol=lf
+*.yaml text eol=lf
+package-lock.json text eol=lf
+LICENSE text eol=lf
+*.zip binary
+*.tgz binary

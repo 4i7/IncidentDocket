@@ -12,24 +12,61 @@ It is intended for developers and first-line technical support who maintain Wind
 
 ## Install from the latest Release
 
-The Windows setup ZIP is the normal installation path:
+The Windows setup ZIP is the normal installation path. Network access is needed to download the Release assets and may be needed by npm to resolve the package's production dependencies.
 
-1. Download `incident-docket-windows-setup.zip` from the [latest Release](https://github.com/4i7/IncidentDocket/releases/latest).
-2. Extract it to a directory you control.
-3. Run PowerShell from that directory:
+1. Download both `incident-docket-windows-setup.zip` and `SHA256SUMS.txt` from the [latest Release](https://github.com/4i7/IncidentDocket/releases/latest).
+2. From the download directory, verify the ZIP before extracting it:
 
 ```powershell
-.\install.ps1 -RegisterCodexMcp
+$matches = @(
+  Get-Content .\SHA256SUMS.txt |
+  Where-Object { $_ -match '^[0-9A-Fa-f]{64}\s+incident-docket-windows-setup\.zip$' }
+)
+
+if ($matches.Count -ne 1) {
+  throw "Expected exactly one checksum entry for incident-docket-windows-setup.zip."
+}
+
+$expected = (($matches[0] -split '\s+')[0]).ToLowerInvariant()
+$actual = (Get-FileHash .\incident-docket-windows-setup.zip -Algorithm SHA256).Hash.ToLowerInvariant()
+
+if ($actual -ne $expected) {
+  throw "Setup ZIP checksum mismatch. Do not extract or run it."
+}
+
+Expand-Archive .\incident-docket-windows-setup.zip .\incident-docket-setup -Force
+Set-Location .\incident-docket-setup
+powershell.exe -NoProfile -ExecutionPolicy Bypass -File .\install.ps1 -RegisterCodexMcp
 ```
 
-The installer verifies the bundled package hash, installs the package globally, and runs the synthetic fixture demo. Installation does not start live collection.
+The ZIP is checksum-verified before extraction. `ExecutionPolicy Bypass` is process-scoped for the checksum-verified script; do not use `Set-ExecutionPolicy`, `Unblock-File` as a required step, or `Invoke-Expression`/`iex` download-and-execute patterns.
 
-For a manual or cross-platform fixture install, download `incident-docket.tgz`, verify it with `SHA256SUMS.txt`, and run:
+The installer verifies the bundled package hash, installs that exact local tarball globally, and runs the synthetic fixture demo. It does not start live collection or request administrator elevation.
+
+With `-RegisterCodexMcp`, missing Codex CLI fails before npm starts. Install Codex and rerun the command, or use package-only installation:
 
 ```powershell
-npm install --global https://github.com/4i7/IncidentDocket/releases/latest/download/incident-docket.tgz
+powershell.exe -NoProfile -ExecutionPolicy Bypass -File .\install.ps1
+```
+
+After registration, restart Codex and confirm the four tools `plan_collection`, `collect_incident_window`, `inspect_evidence`, and `export_support_report` are available. An existing correct MCP entry is left unchanged; an existing wrong entry is reported and never overwritten.
+
+For a manual or cross-platform fixture install, download `incident-docket.tgz` and `SHA256SUMS.txt` from the same Release, then verify and install the same local file:
+
+```powershell
+$matches = @(
+  Get-Content .\SHA256SUMS.txt |
+  Where-Object { $_ -match '^[0-9A-Fa-f]{64}\s+incident-docket\.tgz$' }
+)
+if ($matches.Count -ne 1) { throw "Expected exactly one checksum entry for incident-docket.tgz." }
+$expected = (($matches[0] -split '\s+')[0]).ToLowerInvariant()
+$actual = (Get-FileHash .\incident-docket.tgz -Algorithm SHA256).Hash.ToLowerInvariant()
+if ($actual -ne $expected) { throw "Package checksum mismatch." }
+npm install --global .\incident-docket.tgz
 incident-docket demo --fixture gpu-driver-reset
 ```
+
+The verified local file is the install target; do not substitute a latest-download URL. If a package install, fixture demo, MCP add, or MCP validation fails, the installer exits non-zero, names the stage, and does not claim complete success. No automatic rollback is attempted; review before using `npm uninstall --global incident-docket` or any manual MCP correction.
 
 The Release assets are:
 
@@ -96,7 +133,9 @@ The demo prints a masked Markdown evidence timeline. It does not generate a hypo
 
 ## MCP setup
 
-Register the stdio server in Codex:
+The Release installer can register the stdio server with `-RegisterCodexMcp`. It checks `codex mcp get incident_docket --json` first, leaves a correct existing entry unchanged, and refuses to overwrite a different same-name entry. After an add, it reads the entry back and verifies the command and args. Restart Codex and confirm all four tools are visible.
+
+For a manual registration after a package-only install:
 
 ```powershell
 codex mcp add incident_docket -- incident-docket mcp
