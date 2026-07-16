@@ -1,0 +1,153 @@
+name: Release
+
+on:
+  workflow_dispatch:
+  push:
+    tags:
+      - 'v*.*.*'
+
+concurrency:
+  group: incident-docket-release-${{ github.ref }}
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: npm
+      - name: Install dependencies
+        run: npm ci
+      - name: Test
+        run: npm test
+      - name: Build
+        run: npm run build
+      - name: Audit
+        run: npm audit --omit=dev
+      - name: Build release assets
+        shell: powershell
+        run: powershell.exe -NoProfile -ExecutionPolicy Bypass -File scripts/build-release.ps1
+      - name: Validate release assets
+        shell: powershell
+        run: |
+          $releaseDir = Join-Path $env:GITHUB_WORKSPACE 'artifacts\release'
+          $expected = @(
+            'incident-docket.tgz',
+            'incident-docket-windows-setup.zip',
+            'SHA256SUMS.txt'
+          )
+          foreach ($name in $expected) {
+            if (-not (Test-Path -LiteralPath (Join-Path $releaseDir $name) -PathType Leaf)) {
+              throw "Missing release asset: $name"
+            }
+          }
+          $setupRoot = Join-Path $env:RUNNER_TEMP 'incident-docket-setup-check'
+          if (Test-Path -LiteralPath $setupRoot) { Remove-Item -LiteralPath $setupRoot -Recurse -Force }
+          Expand-Archive -LiteralPath (Join-Path $releaseDir 'incident-docket-windows-setup.zip') -DestinationPath $setupRoot
+          $zipEntries = @(Get-ChildItem -LiteralPath $setupRoot -File | Select-Object -ExpandProperty Name | Sort-Object)
+          $zipExpected = @('INSTALL.md', 'PACKAGE_SHA256.txt', 'incident-docket.tgz', 'install.ps1', 'uninstall.ps1')
+          if ((Compare-Object -ReferenceObject $zipExpected -DifferenceObject $zipEntries) -ne $null) {
+            throw ('Setup ZIP contents mismatch: ' + ($zipEntries -join ', '))
+          }
+      - name: Validate installer in temporary npm prefix
+        shell: powershell
+        run: |
+          $setupRoot = Join-Path $env:RUNNER_TEMP 'incident-docket-setup-check'
+          $prefix = Join-Path $env:RUNNER_TEMP 'incident-docket-installer-prefix'
+          $work = Join-Path $env:RUNNER_TEMP 'incident-docket-installer-cwd'
+          foreach ($path in @($prefix, $work)) {
+            if (Test-Path -LiteralPath $path) { Remove-Item -LiteralPath $path -Recurse -Force }
+            New-Item -ItemType Directory -Path $path -Force | Out-Null
+          }
+          $before = @(Get-ChildItem -LiteralPath $work -Force | Select-Object -ExpandProperty Name)
+          $env:npm_config_prefix = $prefix
+          Push-Location -LiteralPath $work
+          try {
+            & powershell.exe -NoProfile -ExecutionPolicy Bypass -File (Join-Path $setupRoot 'install.ps1')
+            if ($LASTEXITCODE -ne 0) { throw 'Installer returned a non-zero exit code.' }
+          }
+          finally {
+            Pop-Location
+          }
+          $after = @(Get-ChildItem -LiteralPath $work -Force | Select-Object -ExpandProperty Name)
+          if ((Compare-Object -ReferenceObject $before -DifferenceObject $after) -ne $null) {
+            throw 'Installer created an artifact in its current working directory.'
+          }
+          $cli = Join-Path $prefix 'incident-docket.cmd'
+          if (-not (Test-Path -LiteralPath $cli -PathType Leaf)) { throw 'Packed CLI was not installed in the temporary prefix.' }
+          $demo = (& $cli demo --fixture gpu-driver-reset) -join "`n"
+          if ($LASTEXITCODE -ne 0) { throw 'Packed fixture demo failed.' }
+          foreach ($value in @('alex', 'alex@example.invalid', '192.0.2.10', 'fixture-access-token', 'S-1-5-21-111111111-222222222-333333333-1001', 'Ignore previous instructions', 'system prompt')) {
+            if ($demo.ToLowerInvariant().Contains($value.ToLowerInvariant())) { throw 'Fixture privacy value leaked.' }
+          }
+      - name: Upload release assets
+        uses: actions/upload-artifact@v4
+        with:
+          name: incident-docket-release-assets
+          if-no-files-found: error
+          path: |
+            artifacts/release/incident-docket.tgz
+            artifacts/release/incident-docket-windows-setup.zip
+            artifacts/release/SHA256SUMS.txt
+
+  publish:
+    if: startsWith(github.ref, 'refs/tags/v')
+    needs: build
+    runs-on: windows-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+      - name: Download release assets
+        uses: actions/download-artifact@v4
+        with:
+          name: incident-docket-release-assets
+          path: artifacts/release
+      - name: Publish GitHub Release
+        shell: powershell
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          $package = Get-Content -LiteralPath package.json -Raw -Encoding UTF8 | ConvertFrom-Json
+          $tag = $env:GITHUB_REF_NAME
+          $expectedTag = 'v' + [string]$package.version
+          if ($tag -cne $expectedTag) {
+            throw "Tag $tag does not match package version $expectedTag."
+          }
+          $existing = gh release view $tag --repo $env:GITHUB_REPOSITORY 2>$null
+          if ($LASTEXITCODE -eq 0) {
+            Write-Output "Release $tag already exists; nothing was overwritten."
+            exit 0
+          }
+          $notesPath = Join-Path $env:RUNNER_TEMP 'incident-docket-release-notes.md'
+          @'
+          ## Install
+
+          - Windows setup ZIP is recommended for normal installation.
+          - Direct `incident-docket.tgz` installation is available for manual or cross-platform fixture use.
+          - Node.js 22 or later is required.
+          - Codex MCP registration: `codex mcp add incident_docket -- incident-docket mcp`
+          - Verify the SHA-256 values in `SHA256SUMS.txt`.
+
+          Masking is not complete anonymization. Review output before sharing. Temporal proximity is not proof of causation.
+
+          Verify the fixture with:
+
+          ```powershell
+          incident-docket demo --fixture gpu-driver-reset
+          ```
+          '@ | Set-Content -LiteralPath $notesPath -Encoding UTF8
+          $releaseDir = Join-Path $env:GITHUB_WORKSPACE 'artifacts\release'
+          $assets = @(
+            (Join-Path $releaseDir 'incident-docket.tgz'),
+            (Join-Path $releaseDir 'incident-docket-windows-setup.zip'),
+            (Join-Path $releaseDir 'SHA256SUMS.txt')
+          )
+          & gh release create $tag --repo $env:GITHUB_REPOSITORY --title $tag --notes-file $notesPath --verify-tag @assets
+          if ($LASTEXITCODE -ne 0) { throw 'GitHub Release creation failed.' }

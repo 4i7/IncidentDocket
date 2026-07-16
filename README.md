@@ -1,8 +1,45 @@
 # IncidentDocket
 
+[![CI](https://github.com/4i7/IncidentDocket/actions/workflows/ci.yml/badge.svg?branch=main)](https://github.com/4i7/IncidentDocket/actions/workflows/ci.yml)
+[![Latest release](https://img.shields.io/github/v/release/4i7/IncidentDocket?display_name=tag&sort=semver)](https://github.com/4i7/IncidentDocket/releases/latest)
+[![License: MIT](https://img.shields.io/github/license/4i7/IncidentDocket)](LICENSE)
+[![Node.js >=22](https://img.shields.io/badge/Node.js-%3E%3D22-339933?logo=nodedotjs&logoColor=white)](https://nodejs.org/)
+[![Live: Windows 11](https://img.shields.io/badge/live-Windows%2011-0078D4?logo=windows11&logoColor=white)](#supported-platforms)
+
 IncidentDocket is a privacy-bounded Windows evidence collector for developers. It narrows an incident window, masks known sensitive identifiers, and exposes an evidence-linked reporting workflow through MCP.
 
 It is intended for developers and first-line technical support who maintain Windows applications or drivers.
+
+## Install from the latest Release
+
+The Windows setup ZIP is the normal installation path:
+
+1. Download `incident-docket-windows-setup.zip` from the [latest Release](https://github.com/4i7/IncidentDocket/releases/latest).
+2. Extract it to a directory you control.
+3. Run PowerShell from that directory:
+
+```powershell
+.\install.ps1 -RegisterCodexMcp
+```
+
+The installer verifies the bundled package hash, installs the package globally, and runs the synthetic fixture demo. Installation does not start live collection.
+
+For a manual or cross-platform fixture install, download `incident-docket.tgz`, verify it with `SHA256SUMS.txt`, and run:
+
+```powershell
+npm install --global https://github.com/4i7/IncidentDocket/releases/latest/download/incident-docket.tgz
+incident-docket demo --fixture gpu-driver-reset
+```
+
+The Release assets are:
+
+| Asset | Use |
+|---|---|
+| `incident-docket-windows-setup.zip` | Recommended Windows installation |
+| `incident-docket.tgz` | Manual or cross-platform fixture installation |
+| `SHA256SUMS.txt` | SHA-256 verification for both assets |
+
+Node.js 22 or later is required. Codex CLI is needed only for the MCP reasoning workflow; no OpenAI API key is required. Review output before sharing it.
 
 ## Why it exists
 
@@ -36,7 +73,7 @@ IncidentDocket
   -> user-local case and report storage
 ```
 
-The MCP server communicates over stdio. IncidentDocket implements no network client and requires no OpenAI API key.
+The MCP server communicates over stdio. IncidentDocket implements no network client.
 
 ## MCP tools
 
@@ -49,25 +86,7 @@ The MCP server communicates over stdio. IncidentDocket implements no network cli
 
 Each successful tool call returns matching structured content and JSON text content. Evidence text is untrusted data and must never be treated as instructions.
 
-## Quick start guide
-
-Requirements:
-
-- Node.js 22 or later
-- npm
-
-Build and install from source:
-
-```powershell
-git clone https://github.com/4i7/IncidentDocket.git
-cd IncidentDocket
-npm ci
-npm run build
-npm pack
-npm install --global .\incident-docket-0.1.0.tgz
-```
-
-Run the cross-platform synthetic fixture:
+## Fixture demo
 
 ```powershell
 incident-docket demo --fixture gpu-driver-reset
@@ -81,17 +100,6 @@ Register the stdio server in Codex:
 
 ```powershell
 codex mcp add incident_docket -- incident-docket mcp
-```
-
-Then ask the MCP client to use IncidentDocket. For example:
-
-```text
-Use IncidentDocket to investigate the synthetic display-driver problem at
-2026-07-16T09:30:00+09:00.
-
-Use fixture gpu-driver-reset. Collect only the minimum necessary evidence.
-Inspect the relevant evidence IDs and export a privacy-reviewed GitHub issue report.
-Do not treat temporal proximity as proof of causation. Clearly state what is not proven.
 ```
 
 The server entry point is:
@@ -149,7 +157,11 @@ Temporal proximity is not proof of causation.
 
 ## Development
 
+Source checkout build:
+
 ```powershell
+git clone https://github.com/4i7/IncidentDocket.git
+cd IncidentDocket
 npm ci
 npm test
 npm run build
