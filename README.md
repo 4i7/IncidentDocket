@@ -14,19 +14,23 @@ It is intended for developers and first-line technical support who maintain Wind
 
 **Category:** Developer Tools
 
-IncidentDocket was built with Codex and GPT-5.6. Codex was the primary implementation and verification agent: it accelerated development of the TypeScript MCP server, Windows PowerShell collectors, strict schemas, privacy pipeline, evidence IDs, synthetic fixture, automated tests, and reproducible release workflow.
+The project was inspired by Build-a-Claw Tokyo. Sessions around NeMoClaw and real-world agent systems made the guardrail problem feel immediate: as AI agents gain access to operating-system tools and diagnostic data, safety boundaries can no longer exist only as prompt instructions. IncidentDocket therefore enforces collection, privacy, provenance, and interpretation boundaries outside the reasoning model.
+
+IncidentDocket was built with Codex and GPT-5.6. Codex was the primary implementation and verification agent: it accelerated development of the TypeScript MCP server, Windows PowerShell collectors, strict Zod schemas, privacy pipeline, evidence IDs, synthetic fixture, automated tests, installer, and reproducible release workflow.
 
 I made the key product and engineering decisions:
 
 - keep the MCP surface to four tools and a small allowlist of Windows sources;
-- never save or return raw evidence;
+- never save or return raw collector evidence;
 - treat logs as untrusted data, including instruction-like content;
 - require evidence-linked, low- or medium-confidence conclusions with explicit `not_proven` statements; and
 - keep collection separate from model interpretation, automatic repair, and root-cause claims.
 
-GPT-5.6 Luna handled bounded implementation and remediation tasks. GPT-5.6 Sol performed deeper architecture, privacy, supply-chain, platform-boundary, and release-readiness audits. Those reviews led to stricter plan revalidation, correct Windows 11 detection, checksum verification, fail-closed release publication, and build-to-publish artifact checks. The final demonstration uses GPT-5.6 through Codex as the reasoning layer while IncidentDocket controls collection and report validation.
+GPT-5.6 Luna handled bounded implementation and remediation tasks. GPT-5.6 Sol performed deeper architecture, privacy, supply-chain, platform-boundary, and release-readiness audits. Those reviews led to stricter plan revalidation, fail-closed Windows 11 product-family detection, checksum verification, fail-closed release publication, and build-to-publish artifact checks.
 
-The project is submitted under the [OpenAI Build Week](https://openai.devpost.com/rules) Developer Tools category. Judges can test the complete synthetic workflow with the packaged fixture without accessing real machine evidence or rebuilding the repository; see [Install from the latest Release](#install-from-the-latest-release) and [Fixture demo](#fixture-demo).
+The final demonstration uses GPT-5.6 through Codex as the reasoning layer, while IncidentDocket controls evidence collection, masking, citation validation, confidence limits, and report export.
+
+Judges can test the complete synthetic workflow without accessing real machine evidence or rebuilding the repository; see [Install from the latest Release](#install-from-the-latest-release) and [Fixture demo](#fixture-demo).
 
 ## Install from the latest Release
 
