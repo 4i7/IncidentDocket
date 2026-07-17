@@ -10,6 +10,24 @@ IncidentDocket is a privacy-bounded Windows evidence collector for developers. I
 
 It is intended for developers and first-line technical support who maintain Windows applications or drivers.
 
+## OpenAI Build Week
+
+**Category:** Developer Tools
+
+IncidentDocket was built with Codex and GPT-5.6. Codex was the primary implementation and verification agent: it accelerated development of the TypeScript MCP server, Windows PowerShell collectors, strict schemas, privacy pipeline, evidence IDs, synthetic fixture, automated tests, and reproducible release workflow.
+
+I made the key product and engineering decisions:
+
+- keep the MCP surface to four tools and a small allowlist of Windows sources;
+- never save or return raw evidence;
+- treat logs as untrusted data, including instruction-like content;
+- require evidence-linked, low- or medium-confidence conclusions with explicit `not_proven` statements; and
+- keep collection separate from model interpretation, automatic repair, and root-cause claims.
+
+GPT-5.6 Luna handled bounded implementation and remediation tasks. GPT-5.6 Sol performed deeper architecture, privacy, supply-chain, platform-boundary, and release-readiness audits. Those reviews led to stricter plan revalidation, correct Windows 11 detection, checksum verification, fail-closed release publication, and build-to-publish artifact checks. The final demonstration uses GPT-5.6 through Codex as the reasoning layer while IncidentDocket controls collection and report validation.
+
+The project is submitted under the [OpenAI Build Week](https://openai.devpost.com/rules) Developer Tools category. Judges can test the complete synthetic workflow with the packaged fixture without accessing real machine evidence or rebuilding the repository; see [Install from the latest Release](#install-from-the-latest-release) and [Fixture demo](#fixture-demo).
+
 ## Install from the latest Release
 
 The Windows setup ZIP is the normal installation path. Network access is needed to download the Release assets and may be needed by npm to resolve the package's production dependencies.
