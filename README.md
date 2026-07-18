@@ -30,7 +30,7 @@ GPT-5.6 Luna handled bounded implementation and remediation tasks. GPT-5.6 Sol p
 
 The final demonstration uses GPT-5.6 through Codex as the reasoning layer, while IncidentDocket controls evidence collection, masking, citation validation, confidence limits, and report export.
 
-Judges can test the complete synthetic workflow without accessing real machine evidence or rebuilding the repository; see [Install from the latest Release](#install-from-the-latest-release) and [Fixture demo](#fixture-demo).
+Judges can validate the installed package and synthetic evidence pipeline without accessing real machine evidence. After MCP registration, the same fixture supports the complete four-tool workflow.
 
 ## Install from the latest Release
 
