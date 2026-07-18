@@ -106,7 +106,7 @@ const reportOutputSchema = z
 
 export function createMcpServer(storageRoot?: string): McpServer {
   const server = new McpServer(
-    { name: "incident-docket", version: "0.1.0" },
+    { name: "incident-docket", version: "0.1.1" },
     { instructions: INSTRUCTIONS },
   );
 

@@ -206,15 +206,15 @@ export const fixtureSchema = collectionRowsSchema.extend({
 const hypothesisSchema = z
   .object({
     rank: z.number().int().min(1).max(3),
-    title: z.string().min(1).max(120),
+    title: z.string().trim().min(1).max(120),
     confidence: z.enum(["low", "medium"]),
-    explanation: z.string().min(1).max(1_200),
+    explanation: z.string().trim().min(1).max(1_200),
     evidence_ids: z
       .array(z.string().regex(/^(?:EV|OS|DR)-\d{3}$/))
       .min(1)
       .max(10)
       .refine(isUnique),
-    not_proven: z.array(z.string().min(1).max(300)).min(1).max(5),
+    not_proven: z.array(z.string().trim().min(1).max(300)).min(1).max(5),
   })
   .strict();
 
@@ -222,10 +222,10 @@ export const reportInputSchema = z
   .object({
     case_id: uuidSchema,
     outcome: z.enum(["hypotheses", "insufficient_evidence"]),
-    summary: z.string().min(1).max(2_000),
+    summary: z.string().trim().min(1).max(2_000),
     hypotheses: z.array(hypothesisSchema).max(3).default([]),
-    missing_evidence: z.array(z.string().min(1).max(300)).max(10).default([]),
-    next_steps: z.array(z.string().min(1).max(300)).max(5).default([]),
+    missing_evidence: z.array(z.string().trim().min(1).max(300)).max(10).default([]),
+    next_steps: z.array(z.string().trim().min(1).max(300)).max(5).default([]),
   })
   .strict();
 
