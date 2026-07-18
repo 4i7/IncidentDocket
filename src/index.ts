@@ -106,7 +106,7 @@ const reportOutputSchema = z
 
 export function createMcpServer(storageRoot?: string): McpServer {
   const server = new McpServer(
-    { name: "incident-docket", version: "0.1.0" },
+    { name: "incident-docket", version: "0.1.1" },
     { instructions: INSTRUCTIONS },
   );
 
@@ -189,7 +189,7 @@ export function createMcpServer(storageRoot?: string): McpServer {
     "export_support_report",
     {
       title: "Export an evidence-linked support report",
-      description: "Validate GPT-generated bounded hypotheses and create a new privacy-reviewed Markdown report.",
+      description: "Validate GPT-generated bounded hypotheses and create a new Markdown report requiring privacy review.",
       inputSchema: reportInputSchema,
       outputSchema: reportOutputSchema,
       annotations: {

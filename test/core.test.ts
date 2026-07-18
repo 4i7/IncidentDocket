@@ -1288,6 +1288,40 @@ describe("MCP fixture workflow", () => {
         expect(modelVisible.toLowerCase()).not.toContain(forbidden.toLowerCase());
       }
 
+      const expectInvalidReport = async (arguments_: Record<string, unknown>) => {
+        const result = await client.callTool({ name: "export_support_report", arguments: arguments_ });
+        expect(result.isError).toBe(true);
+        expect(String(result.content[0]?.type === "text" ? result.content[0].text : "")).toMatch(
+          /^MCP error -32602: Input validation error: Invalid arguments/,
+        );
+      };
+
+      await expectInvalidReport({
+        case_id: caseId,
+        outcome: "hypotheses",
+        summary: "A display reset occurred near the reported incident.",
+        hypotheses: [
+          {
+            rank: 1,
+            title: "Display driver reset",
+            confidence: "medium",
+            explanation: "The event is temporally close to the incident.",
+            evidence_ids: [indexed[0]?.id],
+            not_proven: [" "],
+          },
+        ],
+        missing_evidence: [],
+        next_steps: [],
+      });
+      await expectInvalidReport({
+        case_id: caseId,
+        outcome: "insufficient_evidence",
+        summary: "The available evidence is insufficient.",
+        hypotheses: [],
+        missing_evidence: [" "],
+        next_steps: [],
+      });
+
       const exported = await client.callTool({
         name: "export_support_report",
         arguments: {

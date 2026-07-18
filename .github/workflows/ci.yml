@@ -9,6 +9,9 @@ permissions:
 
 jobs:
   test:
+    strategy:
+      matrix:
+        node-version: [22, 24]
     runs-on: windows-latest
     steps:
       - uses: actions/checkout@93cb6efe18208431cddfb8368fd83d5badbf9bfd # actions/checkout v5.0.1
@@ -16,7 +19,7 @@ jobs:
           persist-credentials: false
       - uses: actions/setup-node@a0853c24544627f65ddf259abe73b1d18a591444 # actions/setup-node v5.0.0
         with:
-          node-version: 24
+          node-version: ${{ matrix.node-version }}
           cache: npm
       - run: npm ci
       - run: npm test

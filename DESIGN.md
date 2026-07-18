@@ -14,7 +14,7 @@ The primary users are developers and first-line technical support who maintain W
 - One synthetic fixture: `gpu-driver-reset`.
 - Windows 11 live collection from System Event Log, Application Event Log, OS snapshot, and display-driver snapshot.
 - Markdown evidence timelines and support reports.
-- Node.js 22 or later for runtime; Node.js 24 for development and CI.
+- Node.js 22 or later for runtime; Node.js 24 for development and Release builds; CI validates Node.js 22 and 24.
 - npm as the package manager.
 
 ### Explicit exclusions
@@ -40,7 +40,7 @@ MCP client
   -> inspect_evidence
   -> client-generated bounded hypotheses or insufficient evidence
   -> export_support_report
-  -> privacy-reviewed Markdown
+  -> validated Markdown requiring human privacy review
 ```
 
 IncidentDocket owns collection, validation, masking, evidence identity, storage, and report-input validation. It does not generate a fixed hypothesis or completed report.
@@ -112,13 +112,13 @@ Hypothesis contract:
 - Consecutive ranks.
 - `low` or `medium` confidence only.
 - One or more existing evidence IDs.
-- One or more `not_proven` statements.
+- One or more non-blank `not_proven` statements.
 - A hypothesis cannot rely only on collection-time snapshots.
 
 Insufficient-evidence contract:
 
 - No hypotheses.
-- At least one missing-evidence statement.
+- At least one non-blank missing-evidence statement.
 
 Behavior:
 
@@ -199,7 +199,7 @@ The collector serializes an explicit object to UTF-8 JSON, Base64-encodes it, an
 ## 7. Privacy boundary
 
 - Mask known computer names, usernames, domains, absolute paths, UNC paths, SIDs, email addresses, IP and MAC addresses, GUIDs, and credential-like values.
-- Replace unsafe markup and instruction-like content before return.
+- Replace unsafe markup and a small set of recognized high-risk instruction patterns before return. This is defense in depth; all remaining evidence stays untrusted.
 - Drop evidence that remains sensitive after sanitization.
 - Do not save or return raw collector evidence, raw stderr, stack traces, or user-specific absolute paths.
 - Escape dynamic Markdown content.
@@ -238,7 +238,7 @@ Only the fixture demo accepts `--output`. Without it, the case uses the normal u
 - Source, tests, design documents, agent instructions, CI files, cases, reports, logs, and tarballs are excluded.
 - Collector and fixture paths resolve relative to the installed package, not the current working directory.
 
-The Windows CI workflow uses Node.js 24 and runs:
+The Windows CI workflow validates Node.js 22 and 24 and runs:
 
 ```text
 npm ci
