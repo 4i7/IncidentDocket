@@ -1,6 +1,7 @@
 import { mkdir, mkdtemp, readFile, readdir, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { join, win32 } from "node:path";
+import { fileURLToPath } from "node:url";
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { InMemoryTransport } from "@modelcontextprotocol/sdk/inMemory.js";
 import { afterEach, describe, expect, it } from "vitest";
@@ -1013,6 +1014,52 @@ describe("Windows collector boundary", () => {
     ).toThrow("snapshots");
   });
 
+  it("passes the absolute system Windows PowerShell path to the executor", async () => {
+    const originalSystemRoot = process.env.SystemRoot;
+    process.env.SystemRoot = "C:\\Windows";
+    let command = "";
+    try {
+      const built = await collectLiveCase(osPlan(), {
+        platform: "win32",
+        osRelease: "10.0.26100",
+        osVersion: windows11Product,
+        execute: async (value) => {
+          command = value;
+          return { stdout: encodedCollectorPayload({ status: "ok", items: [osItem] }), stderr: "" };
+        },
+        collectedAt: new Date("2026-07-16T01:00:00.000Z"),
+      });
+      expect(command).toBe("C:\\Windows\\System32\\WindowsPowerShell\\v1.0\\powershell.exe");
+      expect(built.case.coverage[0]?.status).toBe("ok");
+    } finally {
+      if (originalSystemRoot === undefined) delete process.env.SystemRoot;
+      else process.env.SystemRoot = originalSystemRoot;
+    }
+  });
+
+  it("marks every source unavailable without executing when SystemRoot is relative", async () => {
+    const originalSystemRoot = process.env.SystemRoot;
+    process.env.SystemRoot = "relative-root";
+    let collectorCalls = 0;
+    try {
+      const built = await collectLiveCase(eventPlan(["system_events", "application_events"]), {
+        platform: "win32",
+        osRelease: "10.0.26100",
+        osVersion: windows11Product,
+        execute: async () => {
+          collectorCalls += 1;
+          return { stdout: "", stderr: "" };
+        },
+        collectedAt: new Date("2026-07-16T00:35:00.000Z"),
+      });
+      expect(collectorCalls).toBe(0);
+      expect(built.case.coverage.map(({ status }) => status)).toEqual(["unavailable", "unavailable"]);
+    } finally {
+      if (originalSystemRoot === undefined) delete process.env.SystemRoot;
+      else process.env.SystemRoot = originalSystemRoot;
+    }
+  });
+
   it("rejects non-Windows live collection", async () => {
     await expect(
       collectLiveCase(osPlan(), { platform: "linux", osRelease: "6.0.0" }),
@@ -1109,9 +1156,34 @@ describe("Windows collector boundary", () => {
   });
 
   it.runIf(process.platform === "win32")("terminates a timed-out Windows PowerShell process", async () => {
+    const systemRoot = process.env.SystemRoot;
+    if (!systemRoot || !win32.isAbsolute(systemRoot)) throw new Error("SystemRoot must be absolute");
     await expect(
-      runProcess("powershell.exe", ["-NoProfile", "-NonInteractive", "-Command", "Start-Sleep -Seconds 5"], 50),
+      runProcess(
+        win32.join(systemRoot, "System32", "WindowsPowerShell", "v1.0", "powershell.exe"),
+        ["-NoProfile", "-NonInteractive", "-Command", "Start-Sleep -Seconds 5"],
+        50,
+      ),
     ).rejects.toMatchObject({ code: "collector_timeout" });
+  });
+
+  it.runIf(process.platform === "win32")("parses the collector with Windows PowerShell 5.1", async () => {
+    const systemRoot = process.env.SystemRoot;
+    if (!systemRoot || !win32.isAbsolute(systemRoot)) throw new Error("SystemRoot must be absolute");
+    const scriptPath = fileURLToPath(new URL("../collectors/windows.ps1", import.meta.url)).replaceAll("'", "''");
+    await expect(
+      runProcess(
+        win32.join(systemRoot, "System32", "WindowsPowerShell", "v1.0", "powershell.exe"),
+        [
+          "-NoLogo",
+          "-NoProfile",
+          "-NonInteractive",
+          "-Command",
+          `$tokens = $null; $errors = $null; [void][System.Management.Automation.Language.Parser]::ParseFile('${scriptPath}', [ref]$tokens, [ref]$errors); if ($errors.Count -ne 0) { $errors | ForEach-Object { Write-Error $_.Message }; exit 1 }`,
+        ],
+        12_000,
+      ),
+    ).resolves.toMatchObject({ stdout: "", stderr: "" });
   });
 
   it.runIf(process.platform === "win32")("saves live cases under LocalAppData and leaves CWD unchanged", async () => {

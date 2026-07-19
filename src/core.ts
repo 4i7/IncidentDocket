@@ -3,7 +3,7 @@ import { spawn } from "node:child_process";
 import { mkdir, readFile, writeFile } from "node:fs/promises";
 import { isIP } from "node:net";
 import { homedir, release, tmpdir, version as osVersion } from "node:os";
-import { join, resolve, sep } from "node:path";
+import { join, resolve, sep, win32 } from "node:path";
 import { fileURLToPath } from "node:url";
 import { z } from "zod";
 
@@ -650,6 +650,11 @@ export async function collectLiveCase(
   if (!Number.isInteger(windowsBuild) || windowsBuild < 22_000 || !isWindows11ProductFamily(productVersion)) {
     throw new IncidentDocketError("unsupported_platform", "Live collection requires Windows 11");
   }
+  const systemRoot = process.env.SystemRoot;
+  const powershellPath =
+    systemRoot && win32.isAbsolute(systemRoot)
+      ? win32.join(systemRoot, "System32", "WindowsPowerShell", "v1.0", "powershell.exe")
+      : undefined;
   const collectedAt = options.collectedAt ?? new Date();
   const collectedAtMs = collectedAt.getTime();
   if (!Number.isFinite(collectedAtMs)) throw new IncidentDocketError("invalid_input", "Collection time is invalid");
@@ -673,6 +678,9 @@ export async function collectLiveCase(
   for (const source of plan.sources) {
     let status: Coverage["status"] = "failed";
     try {
+      if (!powershellPath) {
+        throw new IncidentDocketError("collector_unavailable", "Collector process could not start");
+      }
       const execute = options.execute ?? runProcess;
       const args = [
         "-NoLogo",
@@ -696,7 +704,7 @@ export async function collectLiveCase(
         );
       }
       const result = await execute(
-        "powershell.exe",
+        powershellPath,
         args,
         options.timeoutMs ?? 12_000,
       );
