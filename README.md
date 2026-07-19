@@ -144,8 +144,8 @@ The MCP server communicates over stdio. IncidentDocket implements no network cli
 
 | Tool | Purpose |
 |---|---|
-| `plan_collection` | Validates the problem, timestamp, time window, and requested sources. |
-| `collect_incident_window` | Creates and saves a masked fixture or live case with per-source coverage. |
+| `plan_collection` | Validates and returns a self-contained normalized plan; it does not issue an authenticated capability. |
+| `collect_incident_window` | Independently revalidates the complete plan, then creates and saves a masked fixture or live case with per-source coverage. |
 | `inspect_evidence` | Revalidates and returns only selected, existing evidence IDs. |
 | `export_support_report` | Validates hypotheses or insufficient evidence and creates a Markdown report. |
 
