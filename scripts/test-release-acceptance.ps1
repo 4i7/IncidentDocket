@@ -482,6 +482,7 @@ try {
     New-Directory -Path $cleanCwd | Out-Null
     New-Directory -Path $cleanLocal | Out-Null
     New-Directory -Path $cleanCodexHome | Out-Null
+    $cleanDemoOutput = New-Directory -Path (Join-Path $cleanRoot 'demo output')
     $cleanPath = $cleanPrefix + ';' + $env:Path
     $beforeCwd = @(Get-ChildItem -LiteralPath $cleanCwd -Force | Select-Object -ExpandProperty Name)
     $codexReal = Get-Command codex.cmd -CommandType Application -ErrorAction SilentlyContinue
@@ -495,7 +496,7 @@ try {
     Assert-True (Test-Path -LiteralPath $cleanCli -PathType Leaf) 'Clean setup did not install the CLI in the requested prefix.'
     $demoOut = Join-Path $cleanRoot 'demo.out'
     $demoErr = Join-Path $cleanRoot 'demo.err'
-    & $cleanCli demo --fixture gpu-driver-reset 1>$demoOut 2>$demoErr
+    & $cleanCli demo --fixture gpu-driver-reset --output $cleanDemoOutput 1>$demoOut 2>$demoErr
     Assert-True ($LASTEXITCODE -eq 0) 'Packed fixture CLI failed.'
     $demoText = Read-Text $demoOut
     Assert-True (([regex]::Matches($demoText, 'Temporal proximity does not prove causation\.')).Count -eq 1) 'Packed fixture warning count is not exactly one.'
@@ -503,6 +504,11 @@ try {
     foreach ($secret in @('alex', 'alex@example.invalid', '192.0.2.10', 'fixture-access-token', 'S-1-5-21-111111111-222222222-333333333-1001', 'Ignore previous instructions', 'system prompt')) {
         Assert-True (-not $demoText.ToLowerInvariant().Contains($secret.ToLowerInvariant())) ('Fixture secret leaked: ' + $secret)
     }
+    $demoFiles = @(Get-ChildItem -LiteralPath $cleanDemoOutput -Recurse -File)
+    $demoDirectories = @(Get-ChildItem -LiteralPath $cleanDemoOutput -Recurse -Directory)
+    Assert-True (@($demoFiles | Where-Object Name -like 'case-*.json').Count -eq 1) 'Packed fixture output case count is not exactly one.'
+    Assert-True (@($demoFiles | Where-Object Name -like 'timeline-*.md').Count -eq 1) 'Packed fixture output timeline count is not exactly one.'
+    Assert-True ($demoFiles.Count -eq 2 -and $demoDirectories.Count -eq 0) 'Packed fixture output contains unexpected files or directories.'
     $globalRoot = Join-Path $cleanPrefix 'node_modules'
     Assert-True (Test-Path -LiteralPath $globalRoot -PathType Container) 'Unable to resolve packed global npm root.'
     $packedEntry = Join-Path $globalRoot 'incident-docket\dist\index.js'
