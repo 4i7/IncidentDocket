@@ -252,6 +252,13 @@ The Windows CI workflow runs these deterministic checks and a packed fixture smo
 
 IncidentDocket deliberately does not collect Security or Defender logs, WER, Reliability Monitor data, services, ETW/WPR traces, arbitrary files, arbitrary PowerShell output, network packets, registry dumps, or browser history. It does not include a GUI, HTML reports, RAG, automatic repair, or direct OpenAI API integration.
 
+## Future direction
+
+IncidentDocket currently focuses on Windows evidence. Longer term, it could become an evidence firewall for AI agents: a least-privilege boundary between agents and sensitive technical data.
+Future adapters may apply the same contract—allowlisted sources, bounded windows, masking, provenance, untrusted-evidence handling, and evidence-linked uncertainty—to other diagnostic systems.
+
+This is future work; the current supported scope remains the Windows sources and synthetic fixture described above.
+
 ## License
 
 MIT. See [LICENSE](LICENSE).
