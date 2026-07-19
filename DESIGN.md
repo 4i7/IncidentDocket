@@ -61,7 +61,8 @@ Behavior:
 - Masks the problem text.
 - Normalizes the incident time and window to UTC.
 - Rejects offset-free timestamps, unknown sources, unknown fields, and invalid windows.
-- Holds no server-side plan state.
+- Returns a self-contained normalized plan without keeping a server-side plan registry or issuance history.
+- Does not issue an authenticated capability or establish plan provenance.
 
 Annotations: read-only, non-destructive, idempotent, and closed-world.
 
@@ -75,6 +76,8 @@ Input:
 
 Behavior:
 
+- Independently revalidates the complete normalized plan before fixture or live collection by reapplying the strict schema, masking, unique allowlisted sources, canonical UTC timestamps, a valid original UTC offset, bounded windows, and recomputed window arithmetic.
+- Rejects a supplied plan that differs from the recomputed canonical plan. An equivalent caller-constructed plan is accepted by design because this boundary validates integrity and internal consistency, not provenance.
 - Rejects live mode outside Windows 11.
 - Applies a 12-second timeout per live source.
 - Normalizes denied, unavailable, failed, timeout, and no-data outcomes into source coverage.
