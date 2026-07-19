@@ -753,7 +753,9 @@ export function symbolicCaseLocation(caseId: string, mode: "live" | "fixture"): 
 export function defaultStorageRoot(mode: "live" | "fixture"): string {
   if (process.platform === "win32") {
     const local = process.env.LOCALAPPDATA;
-    if (!local) throw new IncidentDocketError("storage_unavailable", "Local application storage is unavailable");
+    if (!local || !win32.isAbsolute(local)) {
+      throw new IncidentDocketError("storage_unavailable", "Local application storage is unavailable");
+    }
     return join(local, "IncidentDocket");
   }
   if (mode === "live") throw new IncidentDocketError("unsupported_platform", "Live collection requires Windows 11");
@@ -1011,7 +1013,10 @@ export function escapeMarkdown(input: string): string {
 }
 
 function renderMarkdownText(input: string): string {
-  return escapeMarkdown(input.replace(new RegExp(escapeRegExp(TEMPORAL_PROXIMITY_WARNING), "gi"), ""));
+  return (
+    escapeMarkdown(input.replace(new RegExp(escapeRegExp(TEMPORAL_PROXIMITY_WARNING), "gi"), "")).trim() ||
+    "See interpretation boundary."
+  );
 }
 
 export function sanitizeText(input: string): { text: string; masked: number; unsafe: number } {
@@ -1019,7 +1024,7 @@ export function sanitizeText(input: string): { text: string; masked: number; uns
   let masked = 0;
   let unsafe = 0;
   text = text.replace(
-    /!?\[[^\]\r\n]{0,300}\]\([^\)\r\n]{0,1000}\)|<(?!REDACTED_(?:COMPUTER|DOMAIN|EMAIL|GUID|IP|MAC|MARKUP|PATH|PROMPT_INJECTION|SECRET|SID|UNC|UNSAFE_MESSAGE|USER)>)[^>\r\n]{1,1000}>|`+/g,
+    /!?\[[^\]\r\n]{0,300}\]\([^\)\r\n]{0,1000}\)|<(?!REDACTED_(?:COMPUTER|DOMAIN|EMAIL|GUID|IP|MAC|MARKUP|PATH|PROMPT_INJECTION|SECRET|SID|UNC|UNSAFE_MESSAGE|USER)>)[^>\r\n]{1,1000}>|`+|~{3,}/g,
     () => {
       unsafe += 1;
       return "REDACTED_MARKUP";
@@ -1118,9 +1123,13 @@ function details(value: Record<string, unknown>): string {
 function maskPatterns(): Array<[RegExp, string]> {
   const patterns: Array<[RegExp, string]> = [
     [/\bBearer\s+[A-Za-z0-9._~+/=-]+/gi, "<REDACTED_SECRET>"],
-    [/\b(?:password|passwd|pwd|token|api[_-]?key|secret)\b\s*[:=]\s*[^\s,;]+/gi, "<REDACTED_SECRET>"],
+    [/\bAuthorization\s*:\s*Basic\s+[A-Za-z0-9+/=]+/gi, "<REDACTED_SECRET>"],
+    [
+      /\b(?:password|passwd|pwd|token|api[_-]?key|secret)\b\s*[:=]\s*(?:"[^"\r\n]*"|'[^'\r\n]*'|[^\s,;]+)/gi,
+      "<REDACTED_SECRET>",
+    ],
     [/\\\\[^\\\s]+\\[^\s"'<>]+/g, "<REDACTED_UNC>"],
-    [/[A-Za-z]:\\[^\r\n"'<>|]*/g, "<REDACTED_PATH>"],
+    [/[A-Za-z]:[\\/][^\r\n"'<>|]*/g, "<REDACTED_PATH>"],
     [/\/(?:Users|home|var|tmp|etc)\/[^\s"'<>]+/gi, "<REDACTED_PATH>"],
     [/\bS-1-\d+(?:-\d+){1,15}\b/gi, "<REDACTED_SID>"],
     [/[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}/gi, "<REDACTED_EMAIL>"],
