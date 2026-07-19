@@ -10,6 +10,10 @@ IncidentDocket is a privacy-bounded Windows evidence collector for developers. I
 
 It is intended for developers and first-line technical support who maintain Windows applications or drivers.
 
+[Devpost Submission](https://devpost.com/software/incidentdocket) ·
+[Demo Video](https://www.youtube.com/watch?v=aIP9BvWDZh8) ·
+[Latest Release](https://github.com/4i7/IncidentDocket/releases/latest)
+
 ## OpenAI Build Week
 
 **Category:** Developer Tools
