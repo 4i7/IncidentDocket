@@ -1,0 +1,77 @@
+name: Archive Build Week slides
+
+on:
+  push:
+    paths:
+      - .github/workflows/archive-slides.yml
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  archive-slides:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Download slide images
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p docs/Slide
+
+          curl --fail --location --retry 3 \
+            'https://i.ytimg.com/vi/uQrFIgQHrNs/maxresdefault.jpg' \
+            --output docs/Slide/01_opening.jpg
+
+          curl --fail --location --retry 3 \
+            'https://d112y698adiu2z.cloudfront.net/photos/production/software_photos/004/930/236/datas/original.png' \
+            --output docs/Slide/02_problem_solution.png
+          curl --fail --location --retry 3 \
+            'https://d112y698adiu2z.cloudfront.net/photos/production/software_photos/004/930/237/datas/original.png' \
+            --output docs/Slide/03_build_process.png
+          curl --fail --location --retry 3 \
+            'https://d112y698adiu2z.cloudfront.net/photos/production/software_photos/004/930/239/datas/original.png' \
+            --output docs/Slide/04_architecture.png
+          curl --fail --location --retry 3 \
+            'https://d112y698adiu2z.cloudfront.net/photos/production/software_photos/004/930/240/datas/original.png' \
+            --output docs/Slide/05_demo_setup.png
+          curl --fail --location --retry 3 \
+            'https://d112y698adiu2z.cloudfront.net/photos/production/software_photos/004/930/241/datas/original.png' \
+            --output docs/Slide/06_plan_collect.png
+          curl --fail --location --retry 3 \
+            'https://d112y698adiu2z.cloudfront.net/photos/production/software_photos/004/930/242/datas/original.png' \
+            --output docs/Slide/07_inspect_evidence.png
+          curl --fail --location --retry 3 \
+            'https://d112y698adiu2z.cloudfront.net/photos/production/software_photos/004/930/243/datas/original.png' \
+            --output docs/Slide/08_bounded_reasoning.png
+          curl --fail --location --retry 3 \
+            'https://d112y698adiu2z.cloudfront.net/photos/production/software_photos/004/930/244/datas/original.png' \
+            --output docs/Slide/09_report_export.png
+          curl --fail --location --retry 3 \
+            'https://d112y698adiu2z.cloudfront.net/photos/production/software_photos/004/930/245/datas/original.png' \
+            --output docs/Slide/10_release_readiness.png
+          curl --fail --location --retry 3 \
+            'https://d112y698adiu2z.cloudfront.net/photos/production/software_photos/004/930/246/datas/original.png' \
+            --output docs/Slide/11_closing.png
+
+      - name: Commit archived slides
+        shell: bash
+        run: |
+          set -euo pipefail
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+
+          # This is a one-time archival workflow; remove it from the resulting commit.
+          rm -f .github/workflows/archive-slides.yml
+          git add docs/Slide .github/workflows/archive-slides.yml
+
+          if git diff --cached --quiet; then
+            echo 'No slide changes to commit.'
+            exit 0
+          fi
+
+          git commit -m 'docs: archive Build Week slide images'
+          git push
