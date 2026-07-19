@@ -36,6 +36,8 @@ The final demonstration uses GPT-5.6 through Codex as the reasoning layer, while
 
 Judges can validate the installed package and synthetic evidence pipeline without accessing real machine evidence. After MCP registration, follow the [Judge quick test](#judge-quick-test) for the complete four-tool workflow.
 
+For the planning sequence, phase gates, audit-driven remediation, and human/AI division of responsibility, see [Development Process and Human Control](docs/DEVELOPMENT_PROCESS.md).
+
 ## Install from the latest Release
 
 The Windows setup ZIP is the normal installation path. Network access is needed to download the Release assets and may be needed by npm to resolve the package's production dependencies.
