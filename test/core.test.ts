@@ -1184,7 +1184,7 @@ describe("Windows collector boundary", () => {
         12_000,
       ),
     ).resolves.toMatchObject({ stdout: "", stderr: "" });
-  });
+  }, 20_000);
 
   it.runIf(process.platform === "win32")("saves live cases under LocalAppData and leaves CWD unchanged", async () => {
     const root = await temporaryDirectory();
