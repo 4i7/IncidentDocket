@@ -13,6 +13,7 @@ import {
   decodeEventCollectorPayload,
   decodeOsCollectorPayload,
   defaultStorageRoot,
+  escapeMarkdown,
   exportSupportReport,
   fixtureSchema,
   IncidentDocketError,
@@ -281,6 +282,12 @@ describe("schema and deterministic core", () => {
     expect(markdown).not.toContain("<script>");
     expect(markdown).not.toContain("![click]");
     expect(markdown).toContain("&lt;REDACTED\\_PATH&gt;");
+    expect(["---", "- item", "+ item", "1. item"].map(escapeMarkdown)).toEqual([
+      "\\---",
+      "\\- item",
+      "\\+ item",
+      "1\\. item",
+    ]);
     expect(markdown.split(TEMPORAL_PROXIMITY_WARNING).length - 1).toBe(1);
     const duplicateWarning = renderTimeline(
       buildCase({
@@ -312,6 +319,21 @@ describe("schema and deterministic core", () => {
       ["temporal kind", (stored) => { stored.evidence[0]!.temporal_kind = "collection_snapshot"; }],
       ["source", (stored) => { stored.evidence[0]!.source = "display_drivers"; }],
       ["duplicate ID", (stored) => { stored.evidence[1]!.id = stored.evidence[0]!.id; }],
+      ["evidence outside plan", (stored) => {
+        const source = stored.evidence.at(-1)!.source;
+        stored.plan.sources = stored.plan.sources.filter((item) => item !== source);
+        stored.coverage = stored.coverage.filter((item) => item.source !== source);
+      }],
+      ["coverage sources", (stored) => { stored.coverage.pop(); }],
+      ["coverage item count", (stored) => { stored.coverage[0]!.item_count += 1; }],
+      ["plan timestamp", (stored) => { stored.plan.incident_time_utc = stored.plan.incident_time_utc.replace("Z", "+00:00"); }],
+      ["collection timestamp", (stored) => { stored.collected_at_utc = stored.collected_at_utc.replace("Z", "+00:00"); }],
+      ["evidence timestamp", (stored) => { stored.evidence[0]!.timestamp_utc = stored.evidence[0]!.timestamp_utc.replace("Z", "+00:00"); }],
+      ["snapshot timestamp", (stored) => {
+        stored.evidence.find((item) => item.temporal_kind === "collection_snapshot")!.timestamp_utc = new Date(
+          Date.parse(stored.collected_at_utc) - 1,
+        ).toISOString();
+      }],
       ["driver snapshot bypass", (stored) => {
         stored.evidence.find((item) => item.id.startsWith("DR-"))!.temporal_kind = "incident_event";
       }],
@@ -780,7 +802,7 @@ describe("Windows event evidence boundary", () => {
     const report = validateReportInput(built.case, {
       case_id: built.case.case_id,
       outcome: "hypotheses",
-      summary: `basic troubleshooting; ${credentials[0]}`,
+      summary: `   --- basic troubleshooting; ${credentials[0]}`,
       hypotheses: [
         {
           rank: 1,
@@ -792,7 +814,7 @@ describe("Windows event evidence boundary", () => {
         },
       ],
       missing_evidence: [path],
-      next_steps: [credentials[6], "~~~"],
+      next_steps: [credentials[6], "   - follow-up", "~~~"],
     });
     const markdown = renderSupportReport(built.case, report, "66666666-6666-4666-8666-666666666666");
 
@@ -812,6 +834,8 @@ describe("Windows event evidence boundary", () => {
       }
     }
     expect(markdown).toContain("basic troubleshooting");
+    expect(markdown).toContain("\\--- basic troubleshooting");
+    expect(markdown).toContain("- \\- follow-up");
     expect(markdown).not.toContain("~~~");
     expect(markdown.split("\n")).not.toContain("- ");
     expect(markdown.split(TEMPORAL_PROXIMITY_WARNING).length - 1).toBe(1);
