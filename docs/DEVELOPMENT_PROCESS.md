@@ -1,6 +1,6 @@
 # Development Process and Human Control
 
-IncidentDocket was built through a human-controlled, phase-gated process rather than a single broad request to an AI system. This retrospective explains the decisions, verification gates, and audit-driven changes behind the project. Current product behavior is defined by [README.md](../README.md) and [DESIGN.md](../DESIGN.md); the early options below are historical context, not supported features.
+IncidentDocket was built through a human-controlled, phase-gated process rather than a single broad request to an AI system. This retrospective explains the decisions, verification gates, and audit-driven changes behind the project. Current product behavior is defined by [DESIGN.md](../DESIGN.md); [README.md](../README.md) is the user-facing guide, and the early options below are historical context, not supported features.
 
 > **Language note:** The detailed planning and audit sessions were conducted primarily in Japanese, my first language, so I could examine technical, privacy, and release details with greater precision. I apologize for the language mismatch; this retrospective and the public project documentation are provided in English for reviewers.
 

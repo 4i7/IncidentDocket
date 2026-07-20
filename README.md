@@ -36,7 +36,7 @@ The final demonstration uses GPT-5.6 through Codex as the reasoning layer, while
 
 Judges can validate the installed package and synthetic evidence pipeline without accessing real machine evidence. After MCP registration, follow the [Judge quick test](#judge-quick-test) for the complete four-tool workflow.
 
-For the planning sequence, phase gates, audit-driven remediation, and human/AI division of responsibility, see [Development Process and Human Control](docs/DEVELOPMENT_PROCESS.md). The original Japanese planning artifacts are retained for historical context only: [initial blueprint](docs/history/1修正前全体プラン.md), [integrated design](docs/history/2全体設計.md), and [phase design](docs/history/3各フェーズ設計.md). Current product behavior is defined by this README and [DESIGN.md](DESIGN.md), not by those historical artifacts.
+For the planning sequence, phase gates, audit-driven remediation, and human/AI division of responsibility, see [Development Process and Human Control](docs/DEVELOPMENT_PROCESS.md). The original Japanese planning artifacts are retained for historical context only: [initial blueprint](docs/history/1修正前全体プラン.md), [integrated design](docs/history/2全体設計.md), and [phase design](docs/history/3各フェーズ設計.md). Current product behavior is defined by [DESIGN.md](DESIGN.md); this README is the user-facing guide, and the historical artifacts do not define supported behavior.
 
 ## Install from the latest Release
 
