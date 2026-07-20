@@ -175,6 +175,8 @@ The server entry point is:
 incident-docket mcp
 ```
 
+The `mcp` command accepts no additional arguments. Incident timestamps require an offset and seconds; fractional seconds, when present, must be 1–3 digits. Leap seconds are not supported.
+
 ## Judge quick test
 
 After installing with `-RegisterCodexMcp`, restart Codex and paste:

@@ -283,7 +283,7 @@ async function runDemo(args: string[]): Promise<void> {
 
 async function main(): Promise<void> {
   const [command, ...args] = process.argv.slice(2);
-  if (command === "mcp") {
+  if (command === "mcp" && args.length === 0) {
     await createMcpServer().connect(new StdioServerTransport());
     return;
   }
