@@ -3,7 +3,7 @@ import { spawn } from "node:child_process";
 import { mkdir, readFile, writeFile } from "node:fs/promises";
 import { isIP } from "node:net";
 import { homedir, release, tmpdir, version as osVersion } from "node:os";
-import { join, resolve, sep, win32 } from "node:path";
+import { basename, join, resolve, sep, win32 } from "node:path";
 import { fileURLToPath } from "node:url";
 import { z } from "zod";
 
@@ -32,6 +32,8 @@ export const warningSchema = z.enum([
 ]);
 
 export const TEMPORAL_PROXIMITY_WARNING = "Temporal proximity does not prove causation.";
+
+let posixFixtureStorageRoot: string | undefined;
 
 const RFC3339 = /^(\d{4})-(\d{2})-(\d{2})T(\d{2}):(\d{2}):(\d{2})(?:\.(\d{1,3}))?(Z|[+-]\d{2}:\d{2})$/;
 const uuidSchema = z.string().uuid();
@@ -766,7 +768,7 @@ export function symbolicCaseLocation(caseId: string, mode: "live" | "fixture"): 
   const id = uuidSchema.parse(caseId);
   return process.platform === "win32" || mode === "live"
     ? `%LOCALAPPDATA%\\IncidentDocket\\cases\\${id}`
-    : `$TMPDIR/IncidentDocket/cases/${id}`;
+    : `$TMPDIR/${basename(defaultStorageRoot("fixture"))}/cases/${id}`;
 }
 
 export function defaultStorageRoot(mode: "live" | "fixture"): string {
@@ -778,16 +780,19 @@ export function defaultStorageRoot(mode: "live" | "fixture"): string {
     return join(local, "IncidentDocket");
   }
   if (mode === "live") throw new IncidentDocketError("unsupported_platform", "Live collection requires Windows 11");
-  return join(tmpdir(), "IncidentDocket");
+  // ponytail: use XDG/macOS user state only if fixtures need cross-process persistence.
+  posixFixtureStorageRoot ??= join(tmpdir(), `IncidentDocket-${randomUUID()}`);
+  return posixFixtureStorageRoot;
 }
 
 export async function saveCase(value: IncidentCase, root = defaultStorageRoot(value.mode)): Promise<void> {
   const parsed = caseSchema.parse(value);
   const directory = join(resolve(root), "cases");
-  await mkdir(directory, { recursive: true });
+  await mkdir(directory, { recursive: true, mode: 0o700 });
   await writeFile(containedPath(directory, parsed.case_id), JSON.stringify(parsed), {
     encoding: "utf8",
     flag: "wx",
+    mode: 0o600,
   });
 }
 
@@ -809,14 +814,16 @@ export async function loadCase(caseId: string, root: string): Promise<IncidentCa
 
 export async function saveDemoFiles(root: string, value: IncidentCase, markdown: string): Promise<void> {
   const directory = resolve(root);
-  await mkdir(directory, { recursive: true });
+  await mkdir(directory, { recursive: true, mode: 0o700 });
   await writeFile(containedPath(directory, `case-${value.case_id}.json`), JSON.stringify(caseSchema.parse(value), null, 2), {
     encoding: "utf8",
     flag: "wx",
+    mode: 0o600,
   });
   await writeFile(containedPath(directory, `timeline-${value.case_id}.md`), markdown, {
     encoding: "utf8",
     flag: "wx",
+    mode: 0o600,
   });
 }
 
@@ -890,7 +897,7 @@ export async function exportSupportReport(
 ): Promise<{ report_id: string; markdown: string; coverage: Coverage[]; privacy_review_warning: string }> {
   const report = validateReportInput(value, input);
   const directory = join(resolve(root), "reports");
-  await mkdir(directory, { recursive: true });
+  await mkdir(directory, { recursive: true, mode: 0o700 });
   for (let attempt = 0; attempt < 3; attempt += 1) {
     const reportId = randomUUID();
     const markdown = renderSupportReport(value, report, reportId);
@@ -898,6 +905,7 @@ export async function exportSupportReport(
       await writeFile(containedPath(directory, `report-${reportId}.md`), markdown, {
         encoding: "utf8",
         flag: "wx",
+        mode: 0o600,
       });
       return {
         report_id: reportId,

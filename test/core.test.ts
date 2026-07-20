@@ -1,6 +1,6 @@
-import { mkdir, mkdtemp, readFile, readdir, rm, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, readFile, readdir, rm, stat, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
-import { join, win32 } from "node:path";
+import { basename, join, win32 } from "node:path";
 import { fileURLToPath } from "node:url";
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { InMemoryTransport } from "@modelcontextprotocol/sdk/inMemory.js";
@@ -24,6 +24,7 @@ import {
   runProcess,
   sanitizeText,
   saveCase,
+  saveDemoFiles,
   symbolicCaseLocation,
   TEMPORAL_PROXIMITY_WARNING,
   validateNormalizedPlan,
@@ -1320,6 +1321,55 @@ describe("Windows collector boundary", () => {
       process.chdir(originalCwd);
       if (originalLocalAppData === undefined) delete process.env.LOCALAPPDATA;
       else process.env.LOCALAPPDATA = originalLocalAppData;
+    }
+  });
+
+  it.runIf(process.platform !== "win32")("uses private process-scoped fixture storage", async () => {
+    const root = defaultStorageRoot("fixture");
+    temporaryDirectories.push(root);
+    const cwd = await temporaryDirectory();
+    const originalCwd = process.cwd();
+    process.chdir(cwd);
+    try {
+      expect(root).not.toBe(join(tmpdir(), "IncidentDocket"));
+      expect(basename(root)).toMatch(/^IncidentDocket-[0-9a-f-]{36}$/);
+      expect(defaultStorageRoot("fixture")).toBe(root);
+      expect(() => defaultStorageRoot("live")).toThrowError(
+        expect.objectContaining({ code: "unsupported_platform" }),
+      );
+
+      const value = await fixture();
+      const { plan } = normalizePlan(value.default_plan);
+      const built = buildCase({ plan, mode: "fixture", rows: fixtureRows(value) });
+      await saveCase(built.case);
+      const report = await exportSupportReport(built.case, {
+        case_id: built.case.case_id,
+        outcome: "insufficient_evidence",
+        summary: "More evidence is required.",
+        hypotheses: [],
+        missing_evidence: ["A real incident sample is unavailable."],
+        next_steps: [],
+      });
+      const demo = join(root, "demo");
+      await saveDemoFiles(demo, built.case, renderTimeline(built.case));
+
+      expect(symbolicCaseLocation(built.case.case_id, "fixture")).toBe(
+        `$TMPDIR/${basename(root)}/cases/${built.case.case_id}`,
+      );
+      for (const directory of [root, join(root, "cases"), join(root, "reports"), demo]) {
+        expect((await stat(directory)).mode & 0o777, directory).toBe(0o700);
+      }
+      for (const file of [
+        join(root, "cases", built.case.case_id),
+        join(root, "reports", `report-${report.report_id}.md`),
+        join(demo, `case-${built.case.case_id}.json`),
+        join(demo, `timeline-${built.case.case_id}.md`),
+      ]) {
+        expect((await stat(file)).mode & 0o777, file).toBe(0o600);
+      }
+      expect(await readdir(cwd)).toEqual([]);
+    } finally {
+      process.chdir(originalCwd);
     }
   });
 

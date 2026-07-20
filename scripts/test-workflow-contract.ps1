@@ -29,6 +29,20 @@ Assert-True ($ci -notmatch '(?i)contents:\s+write') 'CI must not request content
 Assert-True ($ci -match '(?m)^\s*runs-on:\s+windows-latest\s*$') 'CI must use a Windows runner.'
 Assert-True ($ci -match '(?m)^\s*node-version:\s*\[22,\s*24\]\s*$') 'CI must test Node.js 22 and 24.'
 Assert-True ($ci -match '(?m)^\s*node-version:\s*\$\{\{\s*matrix\.node-version\s*\}\}\s*$') 'CI setup-node must use the matrix version.'
+$posixFixtureMatch = [regex]::Match($ci, '(?ms)^  posix-fixture:\s*\r?\n(?<body>.*?)(?=^  [A-Za-z0-9_-]+:\s*$|\z)')
+Assert-True $posixFixtureMatch.Success 'CI must define the posix-fixture job.'
+$posixFixture = $posixFixtureMatch.Groups['body'].Value
+Assert-True ($posixFixture -match '(?m)^\s*runs-on:\s+ubuntu-latest\s*$') 'POSIX fixture CI must use Ubuntu.'
+Assert-True ($posixFixture -match '(?m)^\s*node-version:\s+22\s*$') 'POSIX fixture CI must use Node.js 22.'
+foreach ($command in @('npm ci', 'npm test', 'npm run build', 'npm pack --dry-run', 'npm audit --omit=dev')) {
+    Assert-True ($posixFixture -match [regex]::Escape($command)) ('POSIX fixture CI command is missing: ' + $command)
+}
+Assert-True ($posixFixture -match '\$RUNNER_TEMP') 'POSIX fixture CI must use a temporary install prefix.'
+Assert-True ($posixFixture -match 'npm install --prefix') 'POSIX fixture CI must install the packed package.'
+Assert-True ($posixFixture -match 'demo --fixture gpu-driver-reset') 'POSIX fixture CI must run the synthetic fixture CLI.'
+Assert-True ($posixFixture -notmatch '(?i)\blive\b') 'POSIX fixture CI must remain synthetic-only.'
+Assert-True ($posixFixture -match 'find "\$work"') 'POSIX fixture CI must verify CWD isolation.'
+Assert-True ($posixFixture -match 'grep -Fqi') 'POSIX fixture CI must scan fixture output for secrets.'
 Assert-True ($release -match '(?m)^\s*node-version:\s+24\s*$') 'Release build must use Node.js 24.'
 Assert-True ($release -match '(?m)^\s*cancel-in-progress:\s+false\s*$') 'Release concurrency must not cancel an in-flight publish.'
 Assert-True ($release -match "(?m)^\s*if:\s*github\.event_name == 'push' && startsWith\(github\.ref, 'refs/tags/v'\)\s*$") 'Publish job event boundary is not fail-closed.'
