@@ -1527,6 +1527,11 @@ describe("MCP fixture workflow", () => {
     await server.connect(serverTransport);
     await client.connect(clientTransport);
     try {
+      const packageVersion = (
+        JSON.parse(await readFile(new URL("../package.json", import.meta.url), "utf8")) as { version: string }
+      ).version;
+      expect(client.getServerVersion()).toEqual({ name: "incident-docket", version: packageVersion });
+
       const listed = await client.listTools();
       expect(listed.tools.map((tool) => tool.name)).toEqual([
         "plan_collection",

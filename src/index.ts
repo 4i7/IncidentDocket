@@ -40,6 +40,10 @@ const INSTRUCTIONS =
   "registry dumps, packet captures, or raw dumps. Cite only returned evidence IDs. If evidence is insufficient, say so. " +
   "Temporal proximity is not proof of causation.";
 
+const PACKAGE_VERSION = z.string().min(1).parse(
+  (JSON.parse(await readFile(new URL("../package.json", import.meta.url), "utf8")) as { version?: unknown }).version,
+);
+
 const planOutputSchema = z
   .object({
     plan: normalizedPlanSchema,
@@ -106,7 +110,7 @@ const reportOutputSchema = z
 
 export function createMcpServer(storageRoot?: string): McpServer {
   const server = new McpServer(
-    { name: "incident-docket", version: "0.1.2" },
+    { name: "incident-docket", version: PACKAGE_VERSION },
     { instructions: INSTRUCTIONS },
   );
 

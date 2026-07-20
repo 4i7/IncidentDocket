@@ -1,6 +1,7 @@
 import { strict as assert } from "node:assert";
 import { spawn, spawnSync } from "node:child_process";
-import { readdir, mkdir } from "node:fs/promises";
+import { readFile, readdir, mkdir } from "node:fs/promises";
+import { dirname, resolve } from "node:path";
 import process from "node:process";
 import { createInterface } from "node:readline";
 
@@ -9,6 +10,8 @@ if (!entry || !storageRoot) {
   console.error("Usage: node scripts/test-packed-mcp.mjs <packed-entrypoint> <storage-root>");
   process.exitCode = 2;
 } else {
+  const packageVersion = JSON.parse(await readFile(resolve(dirname(entry), "../package.json"), "utf8")).version;
+  assert.equal(typeof packageVersion, "string", "packed package version was not a string");
   const warning = "Temporal proximity does not prove causation.";
   const expectedTools = {
     collect_incident_window: { readOnlyHint: false, destructiveHint: false, idempotentHint: false, openWorldHint: false },
@@ -124,6 +127,11 @@ if (!entry || !storageRoot) {
       assert.equal(message.jsonrpc, "2.0", "packed MCP emitted a non-JSON-RPC frame");
       if (message.id === 1) {
         assert.ok(message.result && !message.error, "MCP initialize failed");
+        assert.deepEqual(
+          message.result.serverInfo,
+          { name: "incident-docket", version: packageVersion },
+          "packed MCP serverInfo did not match package metadata",
+        );
         send({ jsonrpc: "2.0", method: "notifications/initialized" });
         send({ jsonrpc: "2.0", id: 2, method: "tools/list", params: {} });
       } else if (message.id === 2) {
