@@ -749,22 +749,29 @@ describe("Windows event evidence boundary", () => {
   });
 
   it("masks quoted credentials and slash paths across sanitized case, inspect, and report output", () => {
-    const secrets = [
+    const credentials = [
       "Authorization: Basic dXNlcjpwYXNz",
       'password="correct horse battery staple"',
-      "D:/private/project/file.txt",
+      'password="double-escaped\\" tail-secret"',
+      'password="double ""doubled"" tail-secret"',
+      "token='single-escaped\\' tail-secret'",
+      "secret='single ''doubled'' tail-secret'",
+      'api_key="unterminated-double tail-secret',
+      "pwd='unterminated-single tail-secret",
     ] as const;
-    expect(secrets.map((secret) => sanitizeText(secret).text)).toEqual([
-      "<REDACTED_SECRET>",
-      "<REDACTED_SECRET>",
-      "<REDACTED_PATH>",
-    ]);
+    const path = "D:/private/project/file.txt";
+    expect(credentials.map((credential) => sanitizeText(credential).text)).toEqual(
+      credentials.map(() => "<REDACTED_SECRET>"),
+    );
+    expect(sanitizeText(path).text).toBe("<REDACTED_PATH>");
+    expect(sanitizeText('password="credential value" status=ok').text).toBe("<REDACTED_SECRET> status=ok");
     expect(sanitizeText("basic troubleshooting").text).toBe("basic troubleshooting");
+    const message = [...credentials.slice(0, -2), path, "~~~", ...credentials.slice(-2)].join("\n");
 
     const built = buildCase({
       plan: eventPlan(),
       mode: "fixture",
-      rows: rowsWithEvents([eventItem({ Message: `${secrets.join(" | ")} | ~~~` })]),
+      rows: rowsWithEvents([eventItem({ Message: message })]),
       collectedAt: new Date("2026-07-16T00:35:00.000Z"),
       caseId: "55555555-5555-4555-8555-555555555555",
     });
@@ -772,24 +779,34 @@ describe("Windows event evidence boundary", () => {
     const report = validateReportInput(built.case, {
       case_id: built.case.case_id,
       outcome: "hypotheses",
-      summary: `basic troubleshooting; ${secrets[0]}`,
+      summary: `basic troubleshooting; ${credentials[0]}`,
       hypotheses: [
         {
           rank: 1,
           title: "Credential-safe output",
           confidence: "low",
-          explanation: secrets[1],
+          explanation: credentials[2],
           evidence_ids: ["EV-001"],
           not_proven: [TEMPORAL_PROXIMITY_WARNING],
         },
       ],
-      missing_evidence: [secrets[2]],
-      next_steps: ["~~~"],
+      missing_evidence: [path],
+      next_steps: [credentials[6], "~~~"],
     });
     const markdown = renderSupportReport(built.case, report, "66666666-6666-4666-8666-666666666666");
 
     for (const output of [JSON.stringify(built.case), JSON.stringify(inspected), markdown]) {
-      for (const secret of ["dXNlcjpwYXNz", "horse battery staple", secrets[2]]) {
+      for (const secret of [
+        "dXNlcjpwYXNz",
+        "horse battery staple",
+        "double-escaped",
+        "double \"\"doubled\"\"",
+        "single-escaped",
+        "single ''doubled''",
+        "unterminated-double",
+        "unterminated-single",
+        path,
+      ]) {
         expect(output).not.toContain(secret);
       }
     }
