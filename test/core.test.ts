@@ -771,7 +771,7 @@ describe("Windows event evidence boundary", () => {
     }
   });
 
-  it("masks quoted credentials and slash paths across sanitized case, inspect, and report output", () => {
+  it("masks credentials and absolute paths across plan, case, inspect, and report output", () => {
     const credentials = [
       "Authorization: Basic dXNlcjpwYXNz",
       'password="correct horse battery staple"',
@@ -781,18 +781,34 @@ describe("Windows event evidence boundary", () => {
       "secret='single ''doubled'' tail-secret'",
       'api_key="unterminated-double tail-secret',
       "pwd='unterminated-single tail-secret",
+      "access_token=abc123",
+      "AWS_ACCESS_KEY_ID=AKIAIOSFODNN7EXAMPLE",
+      "AWS_SECRET_ACCESS_KEY=synthetic-secret",
+      "client_secret=synthetic-value",
+      "service_private_key=synthetic-private-key",
+      "app_credentials=synthetic-credentials",
     ] as const;
-    const path = "D:/private/project/file.txt";
+    const paths = ["D:/private/project/file.txt", "/opt/acme/customer.txt", "/srv/private/data.log", "/root/.ssh/id_rsa"];
+    const safeSlashText = ["https://example.com/private/file.txt", "and/or", "2026/07/20", "opt/acme/file.txt"];
     expect(credentials.map((credential) => sanitizeText(credential).text)).toEqual(
       credentials.map(() => "<REDACTED_SECRET>"),
     );
-    expect(sanitizeText(path).text).toBe("<REDACTED_PATH>");
+    expect(paths.map((path) => sanitizeText(path).text)).toEqual(paths.map(() => "<REDACTED_PATH>"));
+    expect(sanitizeText("AKIAIOSFODNN7EXAMPLE").text).toBe("<REDACTED_SECRET>");
+    expect(safeSlashText.map((value) => sanitizeText(value).text)).toEqual(safeSlashText);
     expect(sanitizeText('password="credential value" status=ok').text).toBe("<REDACTED_SECRET> status=ok");
     expect(sanitizeText("basic troubleshooting").text).toBe("basic troubleshooting");
-    const message = [...credentials.slice(0, -2), path, "~~~", ...credentials.slice(-2)].join("\n");
+    const message = [...credentials.slice(0, -2), ...paths, "~~~", ...credentials.slice(-2)].join("\n");
+    const plan = normalizePlan({
+      problem: message,
+      incident_time: "2026-07-16T09:30:00+09:00",
+      before_minutes: 5,
+      after_minutes: 5,
+      sources: ["system_events"],
+    }).plan;
 
     const built = buildCase({
-      plan: eventPlan(),
+      plan,
       mode: "fixture",
       rows: rowsWithEvents([eventItem({ Message: message })]),
       collectedAt: new Date("2026-07-16T00:35:00.000Z"),
@@ -813,12 +829,12 @@ describe("Windows event evidence boundary", () => {
           not_proven: [TEMPORAL_PROXIMITY_WARNING],
         },
       ],
-      missing_evidence: [path],
+      missing_evidence: [paths[0]!],
       next_steps: [credentials[6], "   - follow-up", "~~~"],
     });
     const markdown = renderSupportReport(built.case, report, "66666666-6666-4666-8666-666666666666");
 
-    for (const output of [JSON.stringify(built.case), JSON.stringify(inspected), markdown]) {
+    for (const output of [JSON.stringify(plan), JSON.stringify(built.case), JSON.stringify(inspected), markdown]) {
       for (const secret of [
         "dXNlcjpwYXNz",
         "horse battery staple",
@@ -828,7 +844,13 @@ describe("Windows event evidence boundary", () => {
         "single ''doubled''",
         "unterminated-double",
         "unterminated-single",
-        path,
+        "abc123",
+        "AKIAIOSFODNN7EXAMPLE",
+        "synthetic-secret",
+        "synthetic-value",
+        "synthetic-private-key",
+        "synthetic-credentials",
+        ...paths,
       ]) {
         expect(output).not.toContain(secret);
       }
