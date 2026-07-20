@@ -38,6 +38,7 @@ let posixFixtureStorageRoot: string | undefined;
 const RFC3339 = /^(\d{4})-(\d{2})-(\d{2})T(\d{2}):(\d{2}):(\d{2})(?:\.(\d{1,3}))?(Z|[+-]\d{2}:\d{2})$/;
 const uuidSchema = z.string().uuid();
 const rfc3339Schema = z.string().refine(isValidRfc3339, "Expected an offset RFC3339 timestamp");
+const canonicalUtcSchema = z.string().refine(isCanonicalUtcTimestamp, "Expected a canonical UTC timestamp");
 
 export const planInputSchema = z
   .object({
@@ -80,7 +81,7 @@ export const evidenceSchema = z
     id: z.string().regex(/^(?:EV|OS|DR)-\d{3}$/),
     kind: z.enum(["windows_event", "operating_system", "display_driver"]),
     temporal_kind: z.enum(["incident_event", "collection_snapshot"]),
-    timestamp_utc: rfc3339Schema,
+    timestamp_utc: canonicalUtcSchema,
     source: sourceSchema,
     summary: z.string().min(1).max(160),
     details: z.string().max(2_000),
@@ -112,8 +113,11 @@ export const privacyStatsSchema = z
   .strict();
 
 const casePlanSchema = normalizedPlanSchema.extend({
-  effective_window_start_utc: rfc3339Schema,
-  effective_window_end_utc: rfc3339Schema,
+  incident_time_utc: canonicalUtcSchema,
+  window_start_utc: canonicalUtcSchema,
+  window_end_utc: canonicalUtcSchema,
+  effective_window_start_utc: canonicalUtcSchema,
+  effective_window_end_utc: canonicalUtcSchema,
   window_incomplete_after: z.boolean(),
 });
 
@@ -123,7 +127,7 @@ export const caseSchema = z
     case_id: uuidSchema,
     mode: z.enum(["live", "fixture"]),
     plan: casePlanSchema,
-    collected_at_utc: rfc3339Schema,
+    collected_at_utc: canonicalUtcSchema,
     coverage: z.array(coverageSchema).min(1).max(4),
     privacy: privacyStatsSchema,
     evidence: z.array(evidenceSchema).max(200),
@@ -132,6 +136,27 @@ export const caseSchema = z
   .superRefine((value, context) => {
     if (!isUnique(value.evidence.map((item) => item.id))) {
       context.addIssue({ code: "custom", message: "Evidence IDs must be unique", path: ["evidence"] });
+    }
+    const coverageSources = value.coverage.map((item) => item.source);
+    if (
+      !isUnique(coverageSources) ||
+      coverageSources.length !== value.plan.sources.length ||
+      coverageSources.some((source) => !value.plan.sources.includes(source))
+    ) {
+      context.addIssue({ code: "custom", message: "Coverage sources must match plan sources", path: ["coverage"] });
+    }
+    for (const [index, item] of value.coverage.entries()) {
+      if (item.item_count !== value.evidence.filter((evidence) => evidence.source === item.source).length) {
+        context.addIssue({ code: "custom", message: "Coverage item count must match evidence", path: ["coverage", index] });
+      }
+    }
+    if (value.evidence.some((item) => !value.plan.sources.includes(item.source))) {
+      context.addIssue({ code: "custom", message: "Evidence sources must match plan sources", path: ["evidence"] });
+    }
+    for (const [index, item] of value.evidence.entries()) {
+      if (item.temporal_kind === "collection_snapshot" && item.timestamp_utc !== value.collected_at_utc) {
+        context.addIssue({ code: "custom", message: "Snapshot timestamp must match collection time", path: ["evidence", index, "timestamp_utc"] });
+      }
     }
   });
 
@@ -1036,12 +1061,14 @@ export function escapeMarkdown(input: string): string {
     .replace(/&/g, "&amp;")
     .replace(/</g, "&lt;")
     .replace(/>/g, "&gt;")
-    .replace(/([\\`*_{}\[\]()!|#])/g, "\\$1");
+    .replace(/([\\`*_{}\[\]()!|#])/g, "\\$1")
+    .replace(/^(-{3,}|[-+](?=\s))/, "\\$1")
+    .replace(/^(\d+)([.)])(?=\s)/, "$1\\$2");
 }
 
 function renderMarkdownText(input: string): string {
   return (
-    escapeMarkdown(input.replace(new RegExp(escapeRegExp(TEMPORAL_PROXIMITY_WARNING), "gi"), "")).trim() ||
+    escapeMarkdown(input.replace(new RegExp(escapeRegExp(TEMPORAL_PROXIMITY_WARNING), "gi"), "").trim()) ||
     "See interpretation boundary."
   );
 }
