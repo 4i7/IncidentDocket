@@ -72,3 +72,49 @@ jobs:
           $storage = Join-Path $env:RUNNER_TEMP "incident-docket-ci-mcp-storage"
           & node scripts/test-packed-mcp.mjs $entry $storage
           if ($LASTEXITCODE -ne 0) { throw "Packed MCP smoke failed" }
+
+  posix-fixture:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@93cb6efe18208431cddfb8368fd83d5badbf9bfd # actions/checkout v5.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@a0853c24544627f65ddf259abe73b1d18a591444 # actions/setup-node v5.0.0
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      - run: npm test
+      - run: npm run build
+      - run: npm pack --dry-run
+      - run: npm audit --omit=dev
+      - name: Smoke packed fixture CLI
+        shell: bash
+        run: |
+          pack_dir="$RUNNER_TEMP/incident-docket-posix-pack"
+          prefix="$RUNNER_TEMP/incident-docket-posix-prefix"
+          work="$RUNNER_TEMP/incident-docket-posix-cwd"
+          mkdir -p "$pack_dir" "$prefix" "$work"
+          metadata="$(npm pack --json --pack-destination "$pack_dir")"
+          tarball="$(node -e 'process.stdout.write(JSON.parse(process.argv[1])[0].filename)' "$metadata")"
+          npm install --prefix "$prefix" "$pack_dir/$tarball"
+          before="$(find "$work" -mindepth 1 -maxdepth 1 -printf '%f\n' | sort)"
+          pushd "$work" >/dev/null
+          output="$("$prefix/node_modules/.bin/incident-docket" demo --fixture gpu-driver-reset)"
+          popd >/dev/null
+          after="$(find "$work" -mindepth 1 -maxdepth 1 -printf '%f\n' | sort)"
+          test "$before" = "$after"
+          for secret in \
+            alex \
+            alex@example.invalid \
+            192.0.2.10 \
+            fixture-access-token \
+            S-1-5-21-111111111-222222222-333333333-1001 \
+            "Ignore previous instructions" \
+            "system prompt"
+          do
+            if grep -Fqi -- "$secret" <<<"$output"; then
+              echo "Fixture secret leaked to stdout" >&2
+              exit 1
+            fi
+          done

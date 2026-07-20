@@ -194,7 +194,7 @@ Live collection is supported on Windows 11 and runs as the current user without 
 
 OS and display-driver evidence are marked `collection_snapshot` and kept separate from the incident event timeline. Source failures are represented in coverage instead of exposing raw process errors.
 
-Live cases and reports are stored below `%LOCALAPPDATA%\IncidentDocket`. MCP callers cannot choose an arbitrary output directory.
+Live cases and reports are stored below `%LOCALAPPDATA%\IncidentDocket`. On macOS and Linux, each Node.js process stores fixture data below a private `$TMPDIR/IncidentDocket-<random UUID>` directory; reuse after a process restart is not guaranteed. MCP callers cannot choose an arbitrary output directory.
 
 ## Supported platforms
 
@@ -203,7 +203,7 @@ Live cases and reports are stored below `%LOCALAPPDATA%\IncidentDocket`. MCP cal
 | Synthetic fixture | Node.js 22 or later on Windows, macOS, or Linux |
 | Live collection | Windows 11 with Windows PowerShell 5.1 |
 | Development | Node.js 24 and npm |
-| CI | Node.js 22 and 24 |
+| CI | Node.js 22 and 24 on Windows; Node.js 22 on Ubuntu |
 | Release build | Node.js 24 |
 
 ## Privacy and security boundaries
@@ -246,7 +246,7 @@ npm pack --dry-run
 npm audit --omit=dev
 ```
 
-The Windows CI workflow runs these deterministic checks and a packed fixture smoke test. It does not read live event logs.
+CI runs these deterministic checks and packed fixture smoke tests on Windows and Ubuntu. It does not read live event logs.
 
 ## Scope
 

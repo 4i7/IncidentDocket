@@ -14,7 +14,7 @@ The primary users are developers and first-line technical support who maintain W
 - One synthetic fixture: `gpu-driver-reset`.
 - Windows 11 live collection from System Event Log, Application Event Log, OS snapshot, and display-driver snapshot.
 - Markdown evidence timelines and support reports.
-- Node.js 22 or later for runtime; Node.js 24 for development and Release builds; CI validates Node.js 22 and 24.
+- Node.js 22 or later for runtime; Node.js 24 for development and Release builds; CI validates Windows on Node.js 22 and 24 and Ubuntu on Node.js 22.
 - npm as the package manager.
 
 ### Explicit exclusions
@@ -217,9 +217,9 @@ Masking is not complete anonymization. Users must review output before sharing i
 Storage roots:
 
 - Windows: `%LOCALAPPDATA%\IncidentDocket`.
-- Non-Windows fixture mode: the operating-system temporary directory.
+- Non-Windows fixture mode: `$TMPDIR/IncidentDocket-<random UUID>`, created once per Node.js process and not guaranteed to persist across process restarts.
 
-MCP callers cannot provide an arbitrary storage path. Returned live locations use symbolic `%LOCALAPPDATA%` paths rather than usernames or absolute paths.
+On POSIX systems, the storage root and child directories use mode `0700`; case, timeline, and report files use mode `0600`. MCP callers cannot provide an arbitrary storage path. Returned locations are symbolic and do not expose usernames or absolute paths.
 
 The CLI exposes two commands:
 
@@ -241,7 +241,7 @@ Only the fixture demo accepts `--output`. Without it, the case uses the normal u
 - Source, tests, design documents, agent instructions, CI files, cases, reports, logs, and tarballs are excluded.
 - Collector and fixture paths resolve relative to the installed package, not the current working directory.
 
-The Windows CI workflow validates Node.js 22 and 24 and runs:
+The Windows CI job validates Node.js 22 and 24 and runs:
 
 ```text
 npm ci
@@ -252,7 +252,7 @@ npm audit --omit=dev
 packed fixture CLI smoke
 ```
 
-CI uses only synthetic fixture data and never performs live collection.
+An Ubuntu Node.js 22 job runs the same required checks, installs the packed package under a temporary prefix, and verifies the fixture CLI without CWD artifacts or fixture-secret output. CI uses only synthetic fixture data and never performs live collection.
 
 ## 10. Verification
 
@@ -276,6 +276,7 @@ The test suite covers:
 - MCP tool count, annotations, stdio cleanliness, and structured/text equality.
 - Windows success, denied, no-data, timeout, Unicode, and process-failure behavior.
 - Package-relative resources and current-working-directory isolation.
+- Private process-scoped POSIX fixture storage and file modes.
 - Clean packed fixture and MCP workflows.
 
 Behavior changes require the smallest regression test that proves the contract.

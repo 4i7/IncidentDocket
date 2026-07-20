@@ -1,6 +1,6 @@
-import { mkdir, mkdtemp, readFile, readdir, rm, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, readFile, readdir, rm, stat, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
-import { join, win32 } from "node:path";
+import { basename, join, win32 } from "node:path";
 import { fileURLToPath } from "node:url";
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { InMemoryTransport } from "@modelcontextprotocol/sdk/inMemory.js";
@@ -24,6 +24,7 @@ import {
   runProcess,
   sanitizeText,
   saveCase,
+  saveDemoFiles,
   symbolicCaseLocation,
   TEMPORAL_PROXIMITY_WARNING,
   validateNormalizedPlan,
@@ -816,7 +817,7 @@ describe("Windows event evidence boundary", () => {
     expect(markdown.split(TEMPORAL_PROXIMITY_WARNING).length - 1).toBe(1);
   });
 
-  it("continues the other log and creates a coverage-only case when event sources fail", async () => {
+  it.runIf(process.platform === "win32")("continues the other log and creates a coverage-only case when event sources fail", async () => {
     const application = eventItem({ LogName: "Application", RecordId: "app" });
     const scenarios = [
       {
@@ -857,7 +858,7 @@ describe("Windows event evidence boundary", () => {
     }
   });
 
-  it("normalizes denied and no-data event coverage and forwards only fixed UTC arguments", async () => {
+  it.runIf(process.platform === "win32")("normalizes denied and no-data event coverage and forwards only fixed UTC arguments", async () => {
     const seen: string[][] = [];
     const built = await collectLiveCase(eventPlan(["system_events", "application_events"]), {
       platform: "win32",
@@ -974,7 +975,7 @@ describe("Windows collector boundary", () => {
     expect(() => decodeDisplayDriverCollectorPayload(Buffer.from("{", "utf8").toString("base64"))).toThrow("invalid");
   });
 
-  it("assigns stable DR IDs and keeps display snapshots out of the incident timeline", async () => {
+  it.runIf(process.platform === "win32")("assigns stable DR IDs and keeps display snapshots out of the incident timeline", async () => {
     const second = { ...driverItem, DeviceName: "Zeta Adapter", DriverDate: "" };
     const first = { ...driverItem, DeviceName: "Alpha Adapter" };
     const built = await collectLiveCase(driverPlan(), {
@@ -1018,7 +1019,7 @@ describe("Windows collector boundary", () => {
     ).toThrow("snapshots");
   });
 
-  it("normalizes display driver no data, timeout, startup failure, and invalid output", async () => {
+  it.runIf(process.platform === "win32")("normalizes display driver no data, timeout, startup failure, and invalid output", async () => {
     const cases: Array<[() => Promise<{ stdout: string; stderr: string }>, string]> = [
       [async () => ({ stdout: encodedCollectorPayload({ status: "no_data", items: [] }), stderr: "" }), "no_data"],
       [async () => { throw new IncidentDocketError("collector_timeout", "private timeout detail"); }, "timeout"],
@@ -1046,7 +1047,7 @@ describe("Windows collector boundary", () => {
     }
   });
 
-  it("normalizes denied, no data, timeout, process failure, and invalid output coverage", async () => {
+  it.runIf(process.platform === "win32")("normalizes denied, no data, timeout, process failure, and invalid output coverage", async () => {
     const cases: Array<[string, () => Promise<{ stdout: string; stderr: string }>, string]> = [
       ["denied", async () => ({ stdout: encodedCollectorPayload({ status: "denied", items: [] }), stderr: "" }), "denied"],
       ["no_data", async () => ({ stdout: encodedCollectorPayload({ status: "no_data", items: [] }), stderr: "" }), "no_data"],
@@ -1079,7 +1080,7 @@ describe("Windows collector boundary", () => {
     }
   });
 
-  it("keeps stderr out of the case and marks OS as a collection snapshot", async () => {
+  it.runIf(process.platform === "win32")("keeps stderr out of the case and marks OS as a collection snapshot", async () => {
     const secretDiagnostic = "stderr C:\\Users\\private-user\\collector.ps1";
     const built = await collectLiveCase(osPlan(), {
       platform: "win32",
@@ -1167,7 +1168,7 @@ describe("Windows collector boundary", () => {
     ).rejects.toMatchObject({ code: "unsupported_platform" });
   });
 
-  it("accepts Windows 11 products and rejects unsupported products before collection", async () => {
+  it.runIf(process.platform === "win32")("accepts Windows 11 products and rejects unsupported products before collection", async () => {
     const accepted = [
       ["Windows 11", "10.0.22000"],
       ["Windows 11 Pro", "10.0.26100"],
@@ -1320,6 +1321,55 @@ describe("Windows collector boundary", () => {
       process.chdir(originalCwd);
       if (originalLocalAppData === undefined) delete process.env.LOCALAPPDATA;
       else process.env.LOCALAPPDATA = originalLocalAppData;
+    }
+  });
+
+  it.runIf(process.platform !== "win32")("uses private process-scoped fixture storage", async () => {
+    const root = defaultStorageRoot("fixture");
+    temporaryDirectories.push(root);
+    const cwd = await temporaryDirectory();
+    const originalCwd = process.cwd();
+    process.chdir(cwd);
+    try {
+      expect(root).not.toBe(join(tmpdir(), "IncidentDocket"));
+      expect(basename(root)).toMatch(/^IncidentDocket-[0-9a-f-]{36}$/);
+      expect(defaultStorageRoot("fixture")).toBe(root);
+      expect(() => defaultStorageRoot("live")).toThrowError(
+        expect.objectContaining({ code: "unsupported_platform" }),
+      );
+
+      const value = await fixture();
+      const { plan } = normalizePlan(value.default_plan);
+      const built = buildCase({ plan, mode: "fixture", rows: fixtureRows(value) });
+      await saveCase(built.case);
+      const report = await exportSupportReport(built.case, {
+        case_id: built.case.case_id,
+        outcome: "insufficient_evidence",
+        summary: "More evidence is required.",
+        hypotheses: [],
+        missing_evidence: ["A real incident sample is unavailable."],
+        next_steps: [],
+      });
+      const demo = join(root, "demo");
+      await saveDemoFiles(demo, built.case, renderTimeline(built.case));
+
+      expect(symbolicCaseLocation(built.case.case_id, "fixture")).toBe(
+        `$TMPDIR/${basename(root)}/cases/${built.case.case_id}`,
+      );
+      for (const directory of [root, join(root, "cases"), join(root, "reports"), demo]) {
+        expect((await stat(directory)).mode & 0o777, directory).toBe(0o700);
+      }
+      for (const file of [
+        join(root, "cases", built.case.case_id),
+        join(root, "reports", `report-${report.report_id}.md`),
+        join(demo, `case-${built.case.case_id}.json`),
+        join(demo, `timeline-${built.case.case_id}.md`),
+      ]) {
+        expect((await stat(file)).mode & 0o777, file).toBe(0o600);
+      }
+      expect(await readdir(cwd)).toEqual([]);
+    } finally {
+      process.chdir(originalCwd);
     }
   });
 
