@@ -1,4 +1,4 @@
-import { mkdir, mkdtemp, readFile, readdir, rm } from "node:fs/promises";
+import { mkdir, mkdtemp, readFile, readdir, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join, win32 } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -17,6 +17,7 @@ import {
   fixtureSchema,
   IncidentDocketError,
   inspectEvidence,
+  loadCase,
   normalizePlan,
   renderSupportReport,
   renderTimeline,
@@ -289,6 +290,37 @@ describe("schema and deterministic core", () => {
       }).case,
     );
     expect(duplicateWarning.split(TEMPORAL_PROXIMITY_WARNING).length - 1).toBe(1);
+  });
+
+  it("rejects inconsistent or duplicate evidence in stored cases", async () => {
+    const value = await fixture();
+    const { plan } = normalizePlan(value.default_plan);
+    const built = buildCase({
+      plan,
+      mode: "fixture",
+      rows: fixtureRows(value),
+      collectedAt: new Date("2026-07-16T01:00:00.000Z"),
+    });
+    const root = await temporaryDirectory();
+    const path = join(root, "cases", built.case.case_id);
+    await saveCase(built.case, root);
+    await expect(loadCase(built.case.case_id, root)).resolves.toEqual(built.case);
+
+    const mutations: Array<[string, (stored: typeof built.case) => void]> = [
+      ["ID prefix and kind", (stored) => { stored.evidence[0]!.kind = "display_driver"; }],
+      ["temporal kind", (stored) => { stored.evidence[0]!.temporal_kind = "collection_snapshot"; }],
+      ["source", (stored) => { stored.evidence[0]!.source = "display_drivers"; }],
+      ["duplicate ID", (stored) => { stored.evidence[1]!.id = stored.evidence[0]!.id; }],
+      ["driver snapshot bypass", (stored) => {
+        stored.evidence.find((item) => item.id.startsWith("DR-"))!.temporal_kind = "incident_event";
+      }],
+    ];
+    for (const [name, mutate] of mutations) {
+      const stored = structuredClone(built.case);
+      mutate(stored);
+      await writeFile(path, JSON.stringify(stored), "utf8");
+      await expect(loadCase(built.case.case_id, root), name).rejects.toMatchObject({ code: "case_invalid" });
+    }
   });
 });
 
