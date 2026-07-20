@@ -1144,7 +1144,7 @@ function maskPatterns(): Array<[RegExp, string]> {
     [/\bBearer\s+[A-Za-z0-9._~+/=-]+/gi, "<REDACTED_SECRET>"],
     [/\bAuthorization\s*:\s*Basic\s+[A-Za-z0-9+/=]+/gi, "<REDACTED_SECRET>"],
     [
-      /\b(?:password|passwd|pwd|token|api[_-]?key|secret)\b\s*[:=]\s*(?:"[^"\r\n]*"|'[^'\r\n]*'|[^\s,;]+)/gi,
+      /\b(?:password|passwd|pwd|token|api[_-]?key|secret)\b\s*[:=]\s*(?:"(?:\\.|""|[^"\\\r\n])*"|'(?:\\.|''|[^'\\\r\n])*'|"[^\r\n]*|'[^\r\n]*|[^\s,;]+)/gi,
       "<REDACTED_SECRET>",
     ],
     [/\\\\[^\\\s]+\\[^\s"'<>]+/g, "<REDACTED_UNC>"],
