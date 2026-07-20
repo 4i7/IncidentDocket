@@ -52,7 +52,7 @@ IncidentDocket owns collection, validation, masking, evidence identity, storage,
 Input:
 
 - Problem text: 1–2,000 characters.
-- Incident time: offset-bearing RFC 3339 timestamp.
+- Incident time: RFC 3339 timestamp with a required UTC offset and seconds. Fractional seconds are optional and limited to 1–3 digits; leap seconds are not supported.
 - Before and after windows: 0–30 minutes each; both cannot be zero.
 - Sources: unique non-empty subset of the four supported sources.
 
@@ -227,6 +227,8 @@ The CLI exposes two commands:
 incident-docket mcp
 incident-docket demo --fixture gpu-driver-reset [--output <directory>]
 ```
+
+The `mcp` command accepts no additional arguments.
 
 Only the fixture demo accepts `--output`. Without it, the case uses the normal user-local storage root. The demo prints the masked timeline and does not create a fixed hypothesis or support report.
 

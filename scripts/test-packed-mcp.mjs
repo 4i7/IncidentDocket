@@ -1,5 +1,5 @@
 import { strict as assert } from "node:assert";
-import { spawn } from "node:child_process";
+import { spawn, spawnSync } from "node:child_process";
 import { readdir, mkdir } from "node:fs/promises";
 import process from "node:process";
 import { createInterface } from "node:readline";
@@ -28,6 +28,15 @@ if (!entry || !storageRoot) {
   const cwd = process.cwd();
   const cwdBefore = (await readdir(cwd)).sort();
   await mkdir(storageRoot, { recursive: true });
+  const invalid = spawnSync(process.execPath, [entry, "mcp", "--bogus"], {
+    cwd,
+    env: { ...process.env, LOCALAPPDATA: storageRoot },
+    encoding: "utf8",
+    timeout: 5000,
+  });
+  assert.equal(invalid.status, 2, "packed MCP accepted an unsupported argument");
+  assert.equal(invalid.stdout, "", "invalid packed MCP invocation wrote to stdout");
+  assert.match(invalid.stderr, /Usage:/, "invalid packed MCP invocation omitted usage");
   const child = spawn(process.execPath, [entry, "mcp"], {
     cwd,
     env: { ...process.env, LOCALAPPDATA: storageRoot },

@@ -73,7 +73,7 @@ function Get-CodexMcpState {
         }
         return [pscustomobject]@{ Exists = $true; Config = $config }
     }
-    if ($result.Stderr -match '(?i)(no MCP server named|not found|does not exist)') {
+    if (($result.Stderr + "`n" + $result.Stdout) -match '(?i)(no MCP server named|not found|does not exist)') {
         return [pscustomobject]@{ Exists = $false; Config = $null }
     }
     throw 'Codex MCP state inspection failed.'

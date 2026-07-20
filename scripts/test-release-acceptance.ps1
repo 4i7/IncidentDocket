@@ -19,6 +19,7 @@ $environmentNames = @(
     'FAKE_CODEX_MODE', 'FAKE_CODEX_ADD_MARKER', 'STALE_MARKER'
 )
 $testRoot = Join-Path ([IO.Path]::GetTempPath()) ('IncidentDocket-release-acceptance-' + [Guid]::NewGuid().ToString('N'))
+$temporaryCodexHome = $null
 
 function Assert-True {
     param([Parameter(Mandatory = $true)][bool]$Condition, [Parameter(Mandatory = $true)][string]$Message)
@@ -477,7 +478,8 @@ try {
     $cleanPrefix = Join-Path $cleanRoot ('prefix ' + $unicodeMarker + ' space')
     $cleanCwd = Join-Path $cleanRoot ('cwd ' + $unicodeMarker + ' space')
     $cleanLocal = Join-Path $cleanRoot ('local ' + $unicodeMarker + ' space')
-    $cleanCodexHome = Join-Path $cleanRoot 'codex profile'
+    $temporaryCodexHome = Join-Path $repoRoot ('.release-acceptance-codex-' + [Guid]::NewGuid().ToString('N'))
+    $cleanCodexHome = $temporaryCodexHome
     New-Directory -Path $cleanPrefix | Out-Null
     New-Directory -Path $cleanCwd | Out-Null
     New-Directory -Path $cleanLocal | Out-Null
@@ -518,6 +520,11 @@ try {
     $smoke = Invoke-McpSmoke -EntryPath $packedEntry -StorageRoot $packedStorage
     Assert-True ($smoke -match '"tool_count":4') 'Packed MCP did not expose exactly four tools.'
 
+    $caseRoot = Join-Path $cleanLocal 'IncidentDocket'
+    New-Directory -Path $caseRoot | Out-Null
+    $retainedCase = Join-Path $caseRoot 'release-gate-case.md'
+    [IO.File]::WriteAllText($retainedCase, 'retained')
+
     if ($null -ne $codexReal) {
         $oldCodexHome = $env:CODEX_HOME
         $oldPath = $env:Path
@@ -544,6 +551,31 @@ try {
         }
     }
 
+    $beforeUninstallCwd = @(Get-ChildItem -LiteralPath $cleanCwd -Force | Select-Object -ExpandProperty Name)
+    $uninstallArgs = @('-NoProfile', '-ExecutionPolicy', 'Bypass', '-File', (Join-Path $cleanSetup 'uninstall.ps1'))
+    if ($null -ne $codexReal) { $uninstallArgs += '-RemoveCodexMcp' }
+    $uninstallResult = Invoke-Captured -FilePath $powershellPath -Arguments $uninstallArgs -WorkingDirectory $cleanCwd -PathValue $cleanPath -NpmPrefix $cleanPrefix -CodexHome $cleanCodexHome -LocalAppData $cleanLocal -Label 'clean-uninstaller'
+    Assert-True ($uninstallResult.ExitCode -eq 0) ('Clean setup uninstaller failed: ' + $uninstallResult.Stderr)
+    $afterUninstallCwd = @(Get-ChildItem -LiteralPath $cleanCwd -Force | Select-Object -ExpandProperty Name)
+    Assert-True ($null -eq (Compare-Object -ReferenceObject $beforeUninstallCwd -DifferenceObject $afterUninstallCwd)) 'Uninstaller created an artifact in its current working directory.'
+    Assert-True (-not (Test-Path -LiteralPath $cleanCli -PathType Leaf)) 'Uninstaller left the installed CLI behind.'
+    Assert-True (-not (Test-Path -LiteralPath (Join-Path $globalRoot 'incident-docket') -PathType Container)) 'Uninstaller left the installed package behind.'
+    Assert-True (Test-Path -LiteralPath $retainedCase -PathType Leaf) 'Uninstaller removed LocalAppData case data.'
+    if ($null -ne $codexReal) {
+        $oldCodexHome = $env:CODEX_HOME
+        $oldPath = $env:Path
+        try {
+            $env:CODEX_HOME = $cleanCodexHome
+            $env:Path = $cleanPath
+            $stateResult = Invoke-Captured -FilePath $codexReal.Source -Arguments @('mcp', 'get', 'incident_docket', '--json') -WorkingDirectory $cleanCwd -PathValue $cleanPath -NpmPrefix $cleanPrefix -CodexHome $cleanCodexHome -LocalAppData $cleanLocal -Label 'clean-mcp-after-uninstall'
+            Assert-True ($stateResult.ExitCode -ne 0) 'Uninstaller left the isolated Codex MCP entry behind.'
+        }
+        finally {
+            $env:CODEX_HOME = $oldCodexHome
+            $env:Path = $oldPath
+        }
+    }
+
     Write-Output 'Release acceptance passed.'
 }
 catch {
@@ -560,5 +592,8 @@ finally {
         if ($fullRoot.StartsWith($fullTemp + '\', [StringComparison]::OrdinalIgnoreCase) -and [IO.Path]::GetFileName($fullRoot) -like 'IncidentDocket-release-acceptance-*') {
             Remove-Item -LiteralPath $fullRoot -Recurse -Force -ErrorAction SilentlyContinue
         }
+    }
+    if ($null -ne $temporaryCodexHome -and (Test-Path -LiteralPath $temporaryCodexHome)) {
+        Remove-Item -LiteralPath $temporaryCodexHome -Recurse -Force -ErrorAction SilentlyContinue
     }
 }

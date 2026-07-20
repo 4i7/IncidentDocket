@@ -72,13 +72,19 @@ jobs:
           $setupRoot = Join-Path $env:RUNNER_TEMP 'incident-docket-setup-check'
           $prefix = Join-Path $env:RUNNER_TEMP 'incident-docket-installer-prefix'
           $work = Join-Path $env:RUNNER_TEMP 'incident-docket-installer-cwd'
-          foreach ($path in @($setupRoot, $prefix, $work)) {
+          $local = Join-Path $env:RUNNER_TEMP 'incident-docket-installer-localappdata'
+          foreach ($path in @($setupRoot, $prefix, $work, $local)) {
             if (Test-Path -LiteralPath $path) { Remove-Item -LiteralPath $path -Recurse -Force }
             New-Item -ItemType Directory -Path $path -Force | Out-Null
           }
+          $caseRoot = Join-Path $local 'IncidentDocket'
+          New-Item -ItemType Directory -Path $caseRoot -Force | Out-Null
+          $retainedCase = Join-Path $caseRoot 'release-gate-case.md'
+          Set-Content -LiteralPath $retainedCase -Value 'retained' -NoNewline
           Expand-Archive -LiteralPath (Join-Path $releaseDir 'incident-docket-windows-setup.zip') -DestinationPath $setupRoot
           $before = @(Get-ChildItem -LiteralPath $work -Force | Select-Object -ExpandProperty Name)
           $env:npm_config_prefix = $prefix
+          $env:LOCALAPPDATA = $local
           Push-Location -LiteralPath $work
           try {
             & powershell.exe -NoProfile -ExecutionPolicy Bypass -File (Join-Path $setupRoot 'install.ps1')
@@ -94,6 +100,14 @@ jobs:
           $demo = (& $cli demo --fixture gpu-driver-reset) -join "`n"
           if ($LASTEXITCODE -ne 0) { throw 'Packed fixture demo failed.' }
           if ($demo -match '(?i)alex|alex@example\.invalid|192\.0\.2\.10|fixture-access-token|S-1-5-21-|Ignore previous instructions|system prompt') { throw 'Fixture privacy value leaked.' }
+          $beforeUninstall = @(Get-ChildItem -LiteralPath $work -Force | Select-Object -ExpandProperty Name)
+          & powershell.exe -NoProfile -ExecutionPolicy Bypass -File (Join-Path $setupRoot 'uninstall.ps1')
+          if ($LASTEXITCODE -ne 0) { throw 'Uninstaller returned a non-zero exit code.' }
+          $afterUninstall = @(Get-ChildItem -LiteralPath $work -Force | Select-Object -ExpandProperty Name)
+          if ($null -ne (Compare-Object -ReferenceObject $beforeUninstall -DifferenceObject $afterUninstall)) { throw 'Uninstaller created an artifact in its current working directory.' }
+          if (Test-Path -LiteralPath $cli -PathType Leaf) { throw 'Uninstaller left the installed CLI behind.' }
+          if (Test-Path -LiteralPath (Join-Path $prefix 'node_modules\incident-docket') -PathType Container) { throw 'Uninstaller left the installed package behind.' }
+          if (-not (Test-Path -LiteralPath $retainedCase -PathType Leaf)) { throw 'Uninstaller removed LocalAppData case data.' }
       - name: Upload release assets
         uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # actions/upload-artifact v6.0.0
         with:
