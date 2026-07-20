@@ -83,7 +83,21 @@ export const evidenceSchema = z
     summary: z.string().min(1).max(160),
     details: z.string().max(2_000),
   })
-  .strict();
+  .strict()
+  .superRefine((value, context) => {
+    const valid = value.id.startsWith("EV-")
+      ? value.kind === "windows_event" &&
+        value.temporal_kind === "incident_event" &&
+        ["system_events", "application_events"].includes(value.source)
+      : value.id.startsWith("OS-")
+        ? value.kind === "operating_system" && value.temporal_kind === "collection_snapshot" && value.source === "os"
+        : value.kind === "display_driver" &&
+          value.temporal_kind === "collection_snapshot" &&
+          value.source === "display_drivers";
+    if (!valid) {
+      context.addIssue({ code: "custom", message: "Evidence ID, kind, temporal kind, and source do not match" });
+    }
+  });
 
 export const privacyStatsSchema = z
   .object({
@@ -112,7 +126,12 @@ export const caseSchema = z
     privacy: privacyStatsSchema,
     evidence: z.array(evidenceSchema).max(200),
   })
-  .strict();
+  .strict()
+  .superRefine((value, context) => {
+    if (!isUnique(value.evidence.map((item) => item.id))) {
+      context.addIssue({ code: "custom", message: "Evidence IDs must be unique", path: ["evidence"] });
+    }
+  });
 
 export const eventRowSchema = z
   .object({

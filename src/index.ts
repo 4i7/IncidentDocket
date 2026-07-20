@@ -63,7 +63,7 @@ const collectInputSchema = z
     }
   });
 
-const evidenceIndexSchema = evidenceSchema.omit({ details: true });
+const evidenceIndexSchema = z.object(evidenceSchema.shape).omit({ details: true }).strict();
 const collectOutputSchema = z
   .object({
     case_id: z.string().uuid(),
