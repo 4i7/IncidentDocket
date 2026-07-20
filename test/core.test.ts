@@ -817,7 +817,7 @@ describe("Windows event evidence boundary", () => {
     expect(markdown.split(TEMPORAL_PROXIMITY_WARNING).length - 1).toBe(1);
   });
 
-  it("continues the other log and creates a coverage-only case when event sources fail", async () => {
+  it.runIf(process.platform === "win32")("continues the other log and creates a coverage-only case when event sources fail", async () => {
     const application = eventItem({ LogName: "Application", RecordId: "app" });
     const scenarios = [
       {
@@ -858,7 +858,7 @@ describe("Windows event evidence boundary", () => {
     }
   });
 
-  it("normalizes denied and no-data event coverage and forwards only fixed UTC arguments", async () => {
+  it.runIf(process.platform === "win32")("normalizes denied and no-data event coverage and forwards only fixed UTC arguments", async () => {
     const seen: string[][] = [];
     const built = await collectLiveCase(eventPlan(["system_events", "application_events"]), {
       platform: "win32",
@@ -975,7 +975,7 @@ describe("Windows collector boundary", () => {
     expect(() => decodeDisplayDriverCollectorPayload(Buffer.from("{", "utf8").toString("base64"))).toThrow("invalid");
   });
 
-  it("assigns stable DR IDs and keeps display snapshots out of the incident timeline", async () => {
+  it.runIf(process.platform === "win32")("assigns stable DR IDs and keeps display snapshots out of the incident timeline", async () => {
     const second = { ...driverItem, DeviceName: "Zeta Adapter", DriverDate: "" };
     const first = { ...driverItem, DeviceName: "Alpha Adapter" };
     const built = await collectLiveCase(driverPlan(), {
@@ -1019,7 +1019,7 @@ describe("Windows collector boundary", () => {
     ).toThrow("snapshots");
   });
 
-  it("normalizes display driver no data, timeout, startup failure, and invalid output", async () => {
+  it.runIf(process.platform === "win32")("normalizes display driver no data, timeout, startup failure, and invalid output", async () => {
     const cases: Array<[() => Promise<{ stdout: string; stderr: string }>, string]> = [
       [async () => ({ stdout: encodedCollectorPayload({ status: "no_data", items: [] }), stderr: "" }), "no_data"],
       [async () => { throw new IncidentDocketError("collector_timeout", "private timeout detail"); }, "timeout"],
@@ -1047,7 +1047,7 @@ describe("Windows collector boundary", () => {
     }
   });
 
-  it("normalizes denied, no data, timeout, process failure, and invalid output coverage", async () => {
+  it.runIf(process.platform === "win32")("normalizes denied, no data, timeout, process failure, and invalid output coverage", async () => {
     const cases: Array<[string, () => Promise<{ stdout: string; stderr: string }>, string]> = [
       ["denied", async () => ({ stdout: encodedCollectorPayload({ status: "denied", items: [] }), stderr: "" }), "denied"],
       ["no_data", async () => ({ stdout: encodedCollectorPayload({ status: "no_data", items: [] }), stderr: "" }), "no_data"],
@@ -1080,7 +1080,7 @@ describe("Windows collector boundary", () => {
     }
   });
 
-  it("keeps stderr out of the case and marks OS as a collection snapshot", async () => {
+  it.runIf(process.platform === "win32")("keeps stderr out of the case and marks OS as a collection snapshot", async () => {
     const secretDiagnostic = "stderr C:\\Users\\private-user\\collector.ps1";
     const built = await collectLiveCase(osPlan(), {
       platform: "win32",
@@ -1168,7 +1168,7 @@ describe("Windows collector boundary", () => {
     ).rejects.toMatchObject({ code: "unsupported_platform" });
   });
 
-  it("accepts Windows 11 products and rejects unsupported products before collection", async () => {
+  it.runIf(process.platform === "win32")("accepts Windows 11 products and rejects unsupported products before collection", async () => {
     const accepted = [
       ["Windows 11", "10.0.22000"],
       ["Windows 11 Pro", "10.0.26100"],
