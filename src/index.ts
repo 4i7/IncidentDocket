@@ -144,6 +144,7 @@ export function createMcpServer(storageRoot?: string): McpServer {
     async (input) =>
       toolResult(async () => {
         const plan = validateNormalizedPlan(input.plan);
+        const root = storageRoot ?? defaultStorageRoot(input.mode);
         const built =
           input.mode === "fixture"
             ? buildCase({
@@ -152,7 +153,7 @@ export function createMcpServer(storageRoot?: string): McpServer {
                 rows: fixtureRows(await loadFixture()),
               })
             : await collectLiveCase(plan);
-        await saveCase(built.case, storageRoot ?? defaultStorageRoot(input.mode));
+        await saveCase(built.case, root);
         return {
           case_id: built.case.case_id,
           case_location: symbolicCaseLocation(built.case.case_id, input.mode),

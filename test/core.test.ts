@@ -18,6 +18,7 @@ import {
   IncidentDocketError,
   inspectEvidence,
   normalizePlan,
+  renderSupportReport,
   renderTimeline,
   runProcess,
   sanitizeText,
@@ -715,6 +716,57 @@ describe("Windows event evidence boundary", () => {
     }
   });
 
+  it("masks quoted credentials and slash paths across sanitized case, inspect, and report output", () => {
+    const secrets = [
+      "Authorization: Basic dXNlcjpwYXNz",
+      'password="correct horse battery staple"',
+      "D:/private/project/file.txt",
+    ] as const;
+    expect(secrets.map((secret) => sanitizeText(secret).text)).toEqual([
+      "<REDACTED_SECRET>",
+      "<REDACTED_SECRET>",
+      "<REDACTED_PATH>",
+    ]);
+    expect(sanitizeText("basic troubleshooting").text).toBe("basic troubleshooting");
+
+    const built = buildCase({
+      plan: eventPlan(),
+      mode: "fixture",
+      rows: rowsWithEvents([eventItem({ Message: `${secrets.join(" | ")} | ~~~` })]),
+      collectedAt: new Date("2026-07-16T00:35:00.000Z"),
+      caseId: "55555555-5555-4555-8555-555555555555",
+    });
+    const inspected = inspectEvidence(built.case, ["EV-001"]);
+    const report = validateReportInput(built.case, {
+      case_id: built.case.case_id,
+      outcome: "hypotheses",
+      summary: `basic troubleshooting; ${secrets[0]}`,
+      hypotheses: [
+        {
+          rank: 1,
+          title: "Credential-safe output",
+          confidence: "low",
+          explanation: secrets[1],
+          evidence_ids: ["EV-001"],
+          not_proven: [TEMPORAL_PROXIMITY_WARNING],
+        },
+      ],
+      missing_evidence: [secrets[2]],
+      next_steps: ["~~~"],
+    });
+    const markdown = renderSupportReport(built.case, report, "66666666-6666-4666-8666-666666666666");
+
+    for (const output of [JSON.stringify(built.case), JSON.stringify(inspected), markdown]) {
+      for (const secret of ["dXNlcjpwYXNz", "horse battery staple", secrets[2]]) {
+        expect(output).not.toContain(secret);
+      }
+    }
+    expect(markdown).toContain("basic troubleshooting");
+    expect(markdown).not.toContain("~~~");
+    expect(markdown.split("\n")).not.toContain("- ");
+    expect(markdown.split(TEMPORAL_PROXIMITY_WARNING).length - 1).toBe(1);
+  });
+
   it("continues the other log and creates a coverage-only case when event sources fail", async () => {
     const application = eventItem({ LogName: "Application", RecordId: "app" });
     const scenarios = [
@@ -1293,6 +1345,57 @@ describe("Windows collector boundary", () => {
 });
 
 describe("MCP fixture workflow", () => {
+  it("rejects invalid Windows default storage before collection or case creation", async () => {
+    const root = await temporaryDirectory();
+    const cwd = join(root, "cwd");
+    const localAppData = join(root, "local");
+    await mkdir(cwd);
+    const originalCwd = process.cwd();
+    const originalLocalAppData = process.env.LOCALAPPDATA;
+    const originalPlatform = process.platform;
+    Object.defineProperty(process, "platform", { configurable: true, value: "win32" });
+    process.chdir(cwd);
+    try {
+      for (const value of [undefined, "", "."] as const) {
+        if (value === undefined) delete process.env.LOCALAPPDATA;
+        else process.env.LOCALAPPDATA = value;
+        expect(() => defaultStorageRoot("fixture")).toThrowError(
+          expect.objectContaining({ code: "storage_unavailable" }),
+        );
+
+        for (const mode of ["fixture", "live"] as const) {
+          const server = createMcpServer();
+          const client = new Client({ name: "incident-docket-test", version: "1.0.0" });
+          const [clientTransport, serverTransport] = InMemoryTransport.createLinkedPair();
+          await server.connect(serverTransport);
+          await client.connect(clientTransport);
+          try {
+            const result = await client.callTool({
+              name: "collect_incident_window",
+              arguments: {
+                plan: eventPlan(),
+                mode,
+                ...(mode === "fixture" ? { fixture_name: "gpu-driver-reset" } : {}),
+              },
+            });
+            expect(result.isError).toBe(true);
+            expect(result.content[0]).toMatchObject({ text: expect.stringContaining('"storage_unavailable"') });
+          } finally {
+            await client.close();
+            await server.close();
+          }
+        }
+      }
+      expect(await readdir(cwd)).toEqual([]);
+      await expect(readdir(localAppData)).rejects.toMatchObject({ code: "ENOENT" });
+    } finally {
+      process.chdir(originalCwd);
+      Object.defineProperty(process, "platform", { configurable: true, value: originalPlatform });
+      if (originalLocalAppData === undefined) delete process.env.LOCALAPPDATA;
+      else process.env.LOCALAPPDATA = originalLocalAppData;
+    }
+  });
+
   it("exposes four tools with matching structured and text output", async () => {
     const root = await temporaryDirectory();
     const server = createMcpServer(root);
