@@ -797,6 +797,11 @@ describe("Windows event evidence boundary", () => {
       { input: `prefix "/Users/example/Customer's Documents/secret.txt" status=ok`, expected: `prefix "<REDACTED_PATH>" status=ok`, suffix: "Customer's Documents/secret.txt" },
       { input: `prefix '/Users/example/My "Documents"/secret.txt' status=ok`, expected: `prefix '<REDACTED_PATH>' status=ok`, suffix: `My "Documents"/secret.txt` },
       { input: `prefix "\\\\server\\Customer's share\\private file.txt" status=ok`, expected: `prefix "<REDACTED_UNC>" status=ok`, suffix: "Customer's share\\private file.txt" },
+      { input: String.raw`prefix "/Users/example/My \"escaped-quote-segment\"/secret.txt" status=ok`, expected: `prefix "<REDACTED_PATH>" status=ok`, suffix: "escaped-quote-segment" },
+      { input: `prefix "/Users/example/My ""doubled-quote-segment""/secret.txt" status=ok`, expected: `prefix "<REDACTED_PATH>" status=ok`, suffix: "doubled-quote-segment" },
+      { input: String.raw`prefix '/Users/example/O\'escaped-single-segment/secret.txt' status=ok`, expected: `prefix '<REDACTED_PATH>' status=ok`, suffix: "escaped-single-segment" },
+      { input: String.raw`prefix '/Users/example/O'\''shell-single-segment/secret.txt' status=ok`, expected: `prefix '<REDACTED_PATH>' status=ok`, suffix: "shell-single-segment" },
+      { input: `prefix '/Users/example/O''doubled-single-segment/secret.txt' status=ok`, expected: `prefix '<REDACTED_PATH>' status=ok`, suffix: "doubled-single-segment" },
     ] as const;
     const safeSlashText = ["https://example.com/private/file.txt", "https://example.invalid/path", "and/or", "2026/07/20", "opt/acme/file.txt"];
     expect(credentials.map((credential) => sanitizeText(credential).text)).toEqual(
@@ -844,8 +849,8 @@ describe("Windows event evidence boundary", () => {
           not_proven: [TEMPORAL_PROXIMITY_WARNING],
         },
       ],
-      missing_evidence: [spacedPaths[0].value, quotedPaths[0].input, quotedPaths[2].input],
-      next_steps: [credentials[6], spacedPaths[1].value, quotedPaths[1].input, "   - follow-up", "~~~"],
+      missing_evidence: [spacedPaths[0].value, ...quotedPaths.map(({ input }) => input)],
+      next_steps: [credentials[6], spacedPaths[1].value, "   - follow-up", "~~~"],
     });
     const markdown = renderSupportReport(built.case, report, "66666666-6666-4666-8666-666666666666");
 
