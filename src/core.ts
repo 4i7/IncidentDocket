@@ -831,7 +831,34 @@ export async function loadCase(caseId: string, root: string): Promise<IncidentCa
     throw new IncidentDocketError("case_not_found", "Case was not found");
   }
   try {
-    return caseSchema.parse(JSON.parse(raw));
+    const value = caseSchema.parse(JSON.parse(raw));
+    const {
+      effective_window_start_utc: effectiveWindowStart,
+      effective_window_end_utc: effectiveWindowEnd,
+      window_incomplete_after: windowIncompleteAfter,
+      ...plan
+    } = value.plan;
+    validateNormalizedPlan(plan);
+
+    const requestedStart = new Date(plan.window_start_utc).getTime();
+    const requestedEnd = new Date(plan.window_end_utc).getTime();
+    const collectedAt = new Date(value.collected_at_utc).getTime();
+    const expectedEnd = Math.min(requestedEnd, collectedAt);
+    const expectedStart = Math.min(requestedStart, expectedEnd);
+    if (
+      effectiveWindowStart !== new Date(expectedStart).toISOString() ||
+      effectiveWindowEnd !== new Date(expectedEnd).toISOString() ||
+      windowIncompleteAfter !== (expectedEnd !== requestedEnd) ||
+      value.evidence.some(
+        (item) =>
+          item.temporal_kind === "incident_event" &&
+          (new Date(item.timestamp_utc).getTime() < expectedStart || new Date(item.timestamp_utc).getTime() > expectedEnd),
+      ) ||
+      value.coverage.some((item) => item.status !== "ok" && item.item_count !== 0)
+    ) {
+      throw new Error("Stored case failed semantic validation");
+    }
+    return value;
   } catch {
     throw new IncidentDocketError("case_invalid", "Stored case failed validation");
   }

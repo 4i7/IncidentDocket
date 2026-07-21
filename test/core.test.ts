@@ -314,7 +314,30 @@ describe("schema and deterministic core", () => {
     await saveCase(built.case, root);
     await expect(loadCase(built.case.case_id, root)).resolves.toEqual(built.case);
 
+    const clipped = buildCase({
+      plan,
+      mode: "fixture",
+      rows: fixtureRows(value),
+      collectedAt: new Date("2026-07-16T00:31:00.000Z"),
+    });
+    await saveCase(clipped.case, root);
+    await expect(loadCase(clipped.case.case_id, root)).resolves.toEqual(clipped.case);
+
     const mutations: Array<[string, (stored: typeof built.case) => void]> = [
+      ["canonical plan arithmetic", (stored) => {
+        stored.plan.incident_time_utc = new Date(Date.parse(stored.plan.incident_time_utc) + 1).toISOString();
+      }],
+      ["effective end after collection", (stored) => {
+        stored.plan.effective_window_end_utc = new Date(Date.parse(stored.collected_at_utc) + 1).toISOString();
+      }],
+      ["incident event outside effective window", (stored) => {
+        stored.evidence.find((item) => item.temporal_kind === "incident_event")!.timestamp_utc = new Date(
+          Date.parse(stored.plan.effective_window_end_utc) + 1,
+        ).toISOString();
+      }],
+      ["failed coverage with evidence", (stored) => {
+        stored.coverage.find((item) => item.item_count > 0)!.status = "failed";
+      }],
       ["ID prefix and kind", (stored) => { stored.evidence[0]!.kind = "display_driver"; }],
       ["temporal kind", (stored) => { stored.evidence[0]!.temporal_kind = "collection_snapshot"; }],
       ["source", (stored) => { stored.evidence[0]!.source = "display_drivers"; }],
@@ -342,7 +365,10 @@ describe("schema and deterministic core", () => {
       const stored = structuredClone(built.case);
       mutate(stored);
       await writeFile(path, JSON.stringify(stored), "utf8");
-      await expect(loadCase(built.case.case_id, root), name).rejects.toMatchObject({ code: "case_invalid" });
+      await expect(loadCase(built.case.case_id, root), name).rejects.toMatchObject({
+        code: "case_invalid",
+        message: "Stored case failed validation",
+      });
     }
   });
 });
