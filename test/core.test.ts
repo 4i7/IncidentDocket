@@ -1382,6 +1382,98 @@ describe("Windows collector boundary", () => {
     ).resolves.toMatchObject({ stdout: "", stderr: "" });
   }, 20_000);
 
+  it.runIf(process.platform === "win32")(
+    "converts UTC event windows to local DateTime values and preserves canonical UTC output",
+    async () => {
+      const systemRoot = process.env.SystemRoot;
+      if (!systemRoot || !win32.isAbsolute(systemRoot)) throw new Error("SystemRoot must be absolute");
+      const directory = await temporaryDirectory();
+      const harnessPath = join(directory, "collector-timezone-harness.ps1");
+      await writeFile(
+        harnessPath,
+        `param([string]$CollectorPath)
+$ErrorActionPreference = "Stop"
+$format = "yyyy-MM-ddTHH:mm:ss.fff'Z'"
+$culture = [Globalization.CultureInfo]::InvariantCulture
+$style = [Globalization.DateTimeStyles]::AssumeUniversal -bor [Globalization.DateTimeStyles]::AdjustToUniversal
+$global:incidentDocketCallCount = 0
+
+function global:Invoke-IncidentDocketMockWinEvent {
+    [CmdletBinding()]
+    param(
+        [hashtable]$FilterHashtable,
+        [switch]$Oldest,
+        [int]$MaxEvents
+    )
+
+    $expectedStart = if ($Oldest) { "2026-07-16T00:30:00.000Z" } else { "2026-07-16T00:25:00.000Z" }
+    $expectedEnd = if ($Oldest) { "2026-07-16T00:35:00.000Z" } else { "2026-07-16T00:30:00.000Z" }
+    $start = [DateTime]$FilterHashtable.StartTime
+    $end = [DateTime]$FilterHashtable.EndTime
+    if ($start.Kind -ne [DateTimeKind]::Local) { throw "StartTime must be local" }
+    if ($end.Kind -ne [DateTimeKind]::Local) { throw "EndTime must be local" }
+    if ($start.ToUniversalTime().ToString($format, $culture) -ne $expectedStart) { throw "StartTime changed instant" }
+    if ($end.ToUniversalTime().ToString($format, $culture) -ne $expectedEnd) { throw "EndTime changed instant" }
+    if ($FilterHashtable.LogName -ne "System") { throw "unexpected log" }
+    if ((@($FilterHashtable.Level) -join ",") -ne "1,2,3") { throw "unexpected levels" }
+    if ($MaxEvents -ne 26) { throw "unexpected limit" }
+    if ($Oldest -and $global:incidentDocketCallCount -ne 1) { throw "unexpected call order" }
+
+    $global:incidentDocketCallCount += 1
+    return [PSCustomObject]@{
+        TimeCreated = [DateTime]::ParseExact("2026-07-16T00:30:00.000Z", $format, $culture, $style).ToLocalTime()
+        LogName = "System"
+        ProviderName = "Synthetic Provider"
+        Id = 100
+        Level = 2
+        RecordId = "1"
+        Message = "Synthetic boundary event"
+    }
+}
+
+Set-Alias -Name Get-WinEvent -Value Invoke-IncidentDocketMockWinEvent -Scope Global
+& $CollectorPath -Action system_events -WindowStartUtc "2026-07-16T00:25:00.000Z" -IncidentTimeUtc "2026-07-16T00:30:00.000Z" -WindowEndUtc "2026-07-16T00:35:00.000Z"
+if ($global:incidentDocketCallCount -ne 2) { throw "unexpected call count" }
+`,
+        "ascii",
+      );
+
+      const result = await runProcess(
+        win32.join(systemRoot, "System32", "WindowsPowerShell", "v1.0", "powershell.exe"),
+        [
+          "-NoLogo",
+          "-NoProfile",
+          "-NonInteractive",
+          "-ExecutionPolicy",
+          "Bypass",
+          "-File",
+          harnessPath,
+          "-CollectorPath",
+          fileURLToPath(new URL("../collectors/windows.ps1", import.meta.url)),
+        ],
+        12_000,
+      );
+      expect(result.stderr).toBe("");
+      expect(decodeEventCollectorPayload(result.stdout)).toEqual({
+        status: "ok",
+        items: [
+          {
+            TimeCreated: "2026-07-16T00:30:00.000Z",
+            LogName: "System",
+            ProviderName: "Synthetic Provider",
+            Id: 100,
+            Level: 2,
+            RecordId: "1",
+            Message: "Synthetic boundary event",
+          },
+        ],
+        truncated_before: false,
+        truncated_after: false,
+      });
+    },
+    20_000,
+  );
+
   it.runIf(process.platform === "win32")("saves live cases under LocalAppData and leaves CWD unchanged", async () => {
     const root = await temporaryDirectory();
     const localAppData = join(root, "local");
