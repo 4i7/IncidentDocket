@@ -217,11 +217,13 @@ describe("schema and deterministic core", () => {
     ).toThrow();
   });
 
-  it("masks compressed IPv6 and standalone credential formats", () => {
+  it("masks compressed IPv6 without masking clock times and standalone credential formats", () => {
     const value = sanitizeText(
       "peer 2001:db8::1 used sk-abcdefghijklmnopqrstuvwxyz123456 and 00000000-0000-0000-0000-000000000000",
     ).text;
     expect(value).toBe("peer <REDACTED_IP> used <REDACTED_SECRET> and <REDACTED_GUID>");
+    const clockTimes = ["04:17:42.912", "2030-08-09 04:17:42.912 +09:00", "2030-08-09T04:17:42.912+09:00"];
+    expect(clockTimes.map((item) => sanitizeText(item).text)).toEqual(clockTimes);
   });
 
   it("keeps Japanese and emoji evidence within schema limits", async () => {
@@ -536,7 +538,7 @@ describe("inspection and report export", () => {
         },
       ],
       missing_evidence: ["A vendor-specific dump was not collected."],
-      next_steps: ["Reproduce with the same workload."],
+      next_steps: ["2030-08-09 04:17:42.912 +09:00頃に再現を確認してください。"],
     };
 
     const first = await exportSupportReport(built.case, input, root);
@@ -545,6 +547,7 @@ describe("inspection and report export", () => {
     expect(first.markdown).not.toContain("<script>");
     expect(first.markdown).not.toContain("[click](https://example.invalid)");
     expect(first.markdown).toContain("EV-001");
+    expect(first.markdown).toContain("2030-08-09 04:17:42.912 +09:00頃に再現を確認してください。");
     expect(first.markdown.split(TEMPORAL_PROXIMITY_WARNING).length - 1).toBe(1);
     expect(
       await readFile(join(root, "reports", `report-${first.report_id}.md`), "utf8"),

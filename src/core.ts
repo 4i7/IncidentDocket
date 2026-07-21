@@ -1216,7 +1216,6 @@ function maskPatterns(): Array<[RegExp, string]> {
     [/\bS-1-\d+(?:-\d+){1,15}\b/gi, "<REDACTED_SID>"],
     [/[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}/gi, "<REDACTED_EMAIL>"],
     [/\b(?:(?:25[0-5]|2[0-4]\d|1?\d?\d)\.){3}(?:25[0-5]|2[0-4]\d|1?\d?\d)\b/g, "<REDACTED_IP>"],
-    [/\b(?:[A-F0-9]{1,4}:){2,7}[A-F0-9]{0,4}\b/gi, "<REDACTED_IP>"],
     [/\b(?:[A-F0-9]{2}[:-]){5}[A-F0-9]{2}\b/gi, "<REDACTED_MAC>"],
     [/\b[0-9A-F]{8}(?:-[0-9A-F]{4}){3}-[0-9A-F]{12}\b/gi, "<REDACTED_GUID>"],
     [/\b(?:sk-[A-Za-z0-9_-]{20,}|gh[pousr]_[A-Za-z0-9]{20,}|eyJ[A-Za-z0-9_-]{20,}\.[A-Za-z0-9_-]{10,}\.[A-Za-z0-9_-]{10,})\b/g, "<REDACTED_SECRET>"],
