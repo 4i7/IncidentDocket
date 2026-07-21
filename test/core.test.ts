@@ -793,12 +793,18 @@ describe("Windows event evidence boundary", () => {
       { value: "/Users/example/My Documents/customer secret.txt", marker: "<REDACTED_PATH>", suffix: "My Documents/customer secret.txt" },
       { value: "\\\\server\\customer share\\private file.txt", marker: "<REDACTED_UNC>", suffix: "customer share\\private file.txt" },
     ] as const;
+    const quotedPaths = [
+      { input: `prefix "/Users/example/Customer's Documents/secret.txt" status=ok`, expected: `prefix "<REDACTED_PATH>" status=ok`, suffix: "Customer's Documents/secret.txt" },
+      { input: `prefix '/Users/example/My "Documents"/secret.txt' status=ok`, expected: `prefix '<REDACTED_PATH>' status=ok`, suffix: `My "Documents"/secret.txt` },
+      { input: `prefix "\\\\server\\Customer's share\\private file.txt" status=ok`, expected: `prefix "<REDACTED_UNC>" status=ok`, suffix: "Customer's share\\private file.txt" },
+    ] as const;
     const safeSlashText = ["https://example.com/private/file.txt", "https://example.invalid/path", "and/or", "2026/07/20", "opt/acme/file.txt"];
     expect(credentials.map((credential) => sanitizeText(credential).text)).toEqual(
       credentials.map(() => "<REDACTED_SECRET>"),
     );
     expect(paths.map((path) => sanitizeText(path).text)).toEqual(paths.map(() => "<REDACTED_PATH>"));
     expect(spacedPaths.map(({ value }) => sanitizeText(value).text)).toEqual(spacedPaths.map(({ marker }) => marker));
+    expect(quotedPaths.map(({ input }) => sanitizeText(input).text)).toEqual(quotedPaths.map(({ expected }) => expected));
     for (const { value, marker } of spacedPaths) {
       expect(sanitizeText(`prefix "${value}" status=ok`).text).toBe(`prefix "${marker}" status=ok`);
       expect(sanitizeText(`prefix ${value} status=ok`).text).toBe(`prefix ${marker}`);
@@ -807,7 +813,7 @@ describe("Windows event evidence boundary", () => {
     expect(safeSlashText.map((value) => sanitizeText(value).text)).toEqual(safeSlashText);
     expect(sanitizeText('password="credential value" status=ok').text).toBe("<REDACTED_SECRET> status=ok");
     expect(sanitizeText("basic troubleshooting").text).toBe("basic troubleshooting");
-    const message = [...credentials.slice(0, -2), ...paths, ...spacedPaths.map(({ value }) => value), "~~~", ...credentials.slice(-2)].join("\n");
+    const message = [...credentials.slice(0, -2), ...paths, ...spacedPaths.map(({ value }) => value), ...quotedPaths.map(({ input }) => input), "~~~", ...credentials.slice(-2)].join("\n");
     const plan = normalizePlan({
       problem: message,
       incident_time: "2026-07-16T09:30:00+09:00",
@@ -838,8 +844,8 @@ describe("Windows event evidence boundary", () => {
           not_proven: [TEMPORAL_PROXIMITY_WARNING],
         },
       ],
-      missing_evidence: [spacedPaths[0].value],
-      next_steps: [credentials[6], spacedPaths[1].value, "   - follow-up", "~~~"],
+      missing_evidence: [spacedPaths[0].value, quotedPaths[0].input, quotedPaths[2].input],
+      next_steps: [credentials[6], spacedPaths[1].value, quotedPaths[1].input, "   - follow-up", "~~~"],
     });
     const markdown = renderSupportReport(built.case, report, "66666666-6666-4666-8666-666666666666");
 
@@ -861,6 +867,7 @@ describe("Windows event evidence boundary", () => {
         "synthetic-credentials",
         ...paths,
         ...spacedPaths.map(({ suffix }) => suffix),
+        ...quotedPaths.map(({ suffix }) => suffix),
       ]) {
         expect(output).not.toContain(secret);
       }
