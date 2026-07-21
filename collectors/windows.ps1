@@ -90,9 +90,9 @@ try {
         $format = "yyyy-MM-ddTHH:mm:ss.fff'Z'"
         $culture = [Globalization.CultureInfo]::InvariantCulture
         $style = [Globalization.DateTimeStyles]::AssumeUniversal -bor [Globalization.DateTimeStyles]::AdjustToUniversal
-        $windowStart = [DateTime]::ParseExact($WindowStartUtc, $format, $culture, $style)
-        $incidentTime = [DateTime]::ParseExact($IncidentTimeUtc, $format, $culture, $style)
-        $windowEnd = [DateTime]::ParseExact($WindowEndUtc, $format, $culture, $style)
+        $windowStart = [DateTime]::ParseExact($WindowStartUtc, $format, $culture, $style).ToLocalTime()
+        $incidentTime = [DateTime]::ParseExact($IncidentTimeUtc, $format, $culture, $style).ToLocalTime()
+        $windowEnd = [DateTime]::ParseExact($WindowEndUtc, $format, $culture, $style).ToLocalTime()
         $logName = if ($Action -eq "system_events") { "System" } else { "Application" }
 
         $before = @()
