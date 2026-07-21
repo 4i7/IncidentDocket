@@ -1,6 +1,6 @@
 {
   "name": "incident-docket",
-  "version": "0.1.6",
+  "version": "0.1.7",
   "description": "Privacy-bounded Windows incident evidence collector for developers",
   "type": "module",
   "bin": {
